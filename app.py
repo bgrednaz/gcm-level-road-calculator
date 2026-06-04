@@ -227,7 +227,15 @@ def enrich_vehicle_profile(name, prof):
     p.setdefault("front_right_base_tyre_load_kg", front_each)
     p.setdefault("rear_left_base_tyre_load_kg", rear_each)
     p.setdefault("rear_right_base_tyre_load_kg", rear_each)
-    p.setdefault("driven_axle_type", "Four Wheel Drive")
+    p.setdefault("driven_axle_type", "AWD")
+
+    # Normalise legacy driven-axle labels from older saved profiles.
+    _drive_map = {
+        "RWD": "RWD",
+        "FWD": "FWD",
+        "AWD": "AWD",
+    }
+    p["driven_axle_type"] = _drive_map.get(p.get("driven_axle_type"), p.get("driven_axle_type", "AWD"))
     p.setdefault("tyre_road_friction_coefficient", 0.80)
     p.setdefault("wheelbase_mm", 3125.0)
     p.setdefault("rear_axle_to_towball_mm", 1450.0)
@@ -264,7 +272,7 @@ else:
 
 g = 9.81
 TYRE_TYPES = ["Highway", "All-Terrain", "Mud-Terrain"]
-DRIVEN_AXLE_TYPES = ["Rear Wheel Drive", "Front Wheel Drive", "Four Wheel Drive"]
+DRIVEN_AXLE_TYPES = ["AWD", "FWD", "RWD"]
 LOW_SPEED_MPS = 1.0   # m/s — below this speed, engine is at idle for launch
 
 # ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────────
@@ -481,7 +489,7 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
     st.markdown("**Traction Limit**")
     e_drive = st.selectbox(
         "Driven axle type", DRIVEN_AXLE_TYPES,
-        index=DRIVEN_AXLE_TYPES.index(vp.get("driven_axle_type", "Four Wheel Drive")),
+        index=DRIVEN_AXLE_TYPES.index(vp.get("driven_axle_type", "AWD")),
         key=f"e_drive_{_vkv}"
     )
     e_mu = st.number_input("Tyre-road friction coefficient", value=float(vp["tyre_road_friction_coefficient"]), min_value=0.0, max_value=2.0, step=0.05, format="%.2f", key=f"e_mu_{_vkv}")
@@ -820,11 +828,11 @@ else:
     T_wheel = 0.0
 
 # Basic tyre-road friction limit based on driven axle normal load.
-if driven_axle_type == "Rear Wheel Drive":
+if driven_axle_type == "RWD":
     driven_axle_normal_N = rear_loaded_N
-elif driven_axle_type == "Front Wheel Drive":
+elif driven_axle_type == "FWD":
     driven_axle_normal_N = front_loaded_N
-else:
+else:  # AWD
     driven_axle_normal_N = loaded_vehicle_tyre_total_N
 
 F_traction_limit = tyre_road_mu * driven_axle_normal_N
