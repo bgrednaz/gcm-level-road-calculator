@@ -308,74 +308,72 @@ def select_best_gear(
     peak_power_W, V_mps, fallback_torque_Nm=400.0,
 ):
     """
-    Evaluate every gear at the given vehicle speed.
+    Evaluate every gear at the given vehicle speed and select the valid gear
+    that gives the highest available engine-based tractive force.
 
-    Validity rules
-    ─────────────
-    • At very low road speed (< 1 m/s) the engine is at idle for launch:
-        effective_rpm = max(calc_rpm, idle_rpm)
-    • At normal speed a gear whose calc_rpm falls below idle is INVALID
-        (the engine cannot rev that low while the vehicle is moving).
-    • Any gear whose effective_rpm exceeds redline is INVALID.
+    Low-speed launch correction:
+    At low road speeds the calculated engine RPM can fall below idle. In reality,
+    clutch or torque converter slip allows the engine to remain at or above idle.
+    Therefore, effective RPM is floored at idle RPM for calculation purposes.
 
-    For valid gears:
-      torque_Nm   = interpolated from torque_curve at effective_rpm
-      P_engine    = torque × effective_rpm × 2π / 60
-      P_capped    = min(P_engine, peak_power_W)
-      T_wheel     = torque × gear_ratio × final_drive × driveline_eff
-      F_torque    = T_wheel / tyre_radius
-      F_power     = P_capped / max(V_mps, 1.0)
-      F_available = min(F_torque, F_power)
+    A gear is invalid only if the effective RPM exceeds redline.
 
-    Returns (gear_rows list, best_idx or None).
+    This remains an idealised best-force shift strategy and does not yet include
+    shift delay, torque converter multiplication, traction control intervention,
+    or manufacturer shift scheduling.
     """
     TWO_PI = 2.0 * math.pi
     wheel_rad_s = V_mps / max(tyre_radius_m, 0.001)
-    near_zero   = V_mps < LOW_SPEED_MPS
 
     rows = []
     best_idx = None
-    best_F   = -1.0
+    best_F = -1.0
 
     for gi, gr in enumerate(gear_ratios):
         rpm_calc = wheel_rad_s * gr * final_drive_ratio * 60.0 / TWO_PI
 
-        if near_zero:
-            effective_rpm = max(rpm_calc, float(idle_rpm))
-        else:
-            effective_rpm = rpm_calc
+        # Floor RPM at idle to allow launch/low-speed slip modelling.
+        effective_rpm = max(rpm_calc, float(idle_rpm))
 
-        valid = (idle_rpm <= effective_rpm <= redline_rpm)
+        # Gear is invalid only above redline.
+        valid = effective_rpm <= redline_rpm
 
         if valid:
-            tq = (interp_torque(torque_curve, effective_rpm)
-                  if torque_curve else fallback_torque_Nm)
-            P_eng   = tq * effective_rpm * TWO_PI / 60.0
-            P_cap   = min(P_eng, peak_power_W)
-            T_whl   = tq * gr * final_drive_ratio * driveline_efficiency
-            F_tq    = T_whl / max(tyre_radius_m, 0.001)
-            F_pw    = P_cap / max(V_mps, 1.0)
+            tq = interp_torque(torque_curve, effective_rpm) if torque_curve else fallback_torque_Nm
+
+            # Engine power from torque and RPM, capped by profile peak power.
+            P_eng = tq * effective_rpm * TWO_PI / 60.0
+            P_cap = min(P_eng, peak_power_W)
+
+            # Wheel torque and torque-limited tractive force.
+            T_whl = tq * gr * final_drive_ratio * driveline_efficiency
+            F_tq = T_whl / max(tyre_radius_m, 0.001)
+
+            # Power-limited tractive force.
+            F_pw = P_cap / max(V_mps, 1.0)
+
+            # Final engine-based available force.
             F_avail = min(F_tq, F_pw)
         else:
             tq = P_eng = P_cap = T_whl = F_tq = F_pw = F_avail = None
 
         rows.append({
-            "Gear":             gi + 1,
-            "Gear Ratio":       round(gr, 3),
-            "Calc RPM":         round(rpm_calc, 0),
-            "Effective RPM":    round(effective_rpm, 0),
-            "Torque (Nm)":      round(tq, 1)       if tq      is not None else None,
-            "Eng Power (W)":    round(P_eng, 0)     if P_eng   is not None else None,
-            "Cap Power (W)":    round(P_cap, 0)     if P_cap   is not None else None,
-            "F_torque (N)":     round(F_tq, 1)      if F_tq    is not None else None,
-            "F_power (N)":      round(F_pw, 1)      if F_pw    is not None else None,
-            "F_available (N)":  round(F_avail, 1)   if F_avail is not None else None,
-            "Valid":            valid,
-            "Selected":         False,
+            "Gear": gi + 1,
+            "Gear Ratio": round(gr, 3),
+            "Calc RPM": round(rpm_calc, 0),
+            "Effective RPM": round(effective_rpm, 0),
+            "Torque (Nm)": round(tq, 1) if tq is not None else None,
+            "Eng Power (W)": round(P_eng, 0) if P_eng is not None else None,
+            "Cap Power (W)": round(P_cap, 0) if P_cap is not None else None,
+            "F_torque (N)": round(F_tq, 1) if F_tq is not None else None,
+            "F_power (N)": round(F_pw, 1) if F_pw is not None else None,
+            "F_available (N)": round(F_avail, 1) if F_avail is not None else None,
+            "Valid": valid,
+            "Selected": False,
         })
 
         if valid and F_avail is not None and F_avail > best_F:
-            best_F   = F_avail
+            best_F = F_avail
             best_idx = gi
 
     if best_idx is not None:
@@ -967,8 +965,9 @@ with st.expander("Gear Selection Check", expanded=False):
         f"All gears evaluated at {speed_kmh:.0f} km/h ({V:.2f} m/s).  "
         f"Idle: {vp['idle_rpm']:,} RPM  |  Redline: {vp['redline_rpm']:,} RPM.  "
         "At road speeds < 1 m/s (launch), effective RPM is floored at idle so the "
-        "simulation can start from rest. At normal road speed, a gear whose calculated "
-        "RPM falls below idle is marked invalid — the engine cannot sustain that speed."
+        "simulation can start from rest. Calculated RPM is floored at idle RPM to "
+        "allow launch/low-speed clutch or torque converter slip. Gears are only marked "
+        "invalid if effective RPM exceeds redline. — the engine cannot sustain that speed."
     )
     st.info(
         "**Gear selection note:** The current model selects the valid gear that produces "
@@ -993,7 +992,7 @@ with st.expander("Gear Selection Check", expanded=False):
             "F_torque (N)":   f"{_r['F_torque (N)']:.0f}"     if _r["F_torque (N)"]   is not None else "—",
             "F_power (N)":    f"{_r['F_power (N)']:.0f}"      if _r["F_power (N)"]    is not None else "—",
             "F_avail (N)":    f"{_r['F_available (N)']:.0f}"  if _r["F_available (N)"] is not None else "—",
-            "Valid":          "✅" if _r["Valid"] else "❌ Over redline" if _r["Effective RPM"] > vp["redline_rpm"] else "❌ Below idle",
+            "Valid":          "✅" if _r["Valid"] else "❌ Over redline",
             "Selected":       "★" if _r["Selected"] else "",
         })
     st.dataframe(pd.DataFrame(_disp), use_container_width=True, hide_index=True)
