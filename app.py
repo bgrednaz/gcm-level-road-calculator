@@ -1,3 +1,5 @@
+import re
+import math
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -175,20 +177,110 @@ trailer_profiles = {
     },
 }
 
-# ─── ROLLING RESISTANCE ESTIMATION ───────────────────────────────────────────────
+# ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────────
 
 TYRE_TYPES = ["Highway", "All-Terrain", "Mud-Terrain"]
-BASE_CRR = {"Highway": 0.0075, "All-Terrain": 0.011, "Mud-Terrain": 0.015}
-REF_PRESSURE_KPA = 280.0  # reference pressure for Crr correction
+
+# Phase 1 Crr base values (pressure-corrected, for steady-state section)
+BASE_CRR_P1 = {"Highway": 0.0075, "All-Terrain": 0.011, "Mud-Terrain": 0.015}
+REF_PRESSURE_KPA = 280.0
 
 def estimate_crr(tyre_type, tyre_pressure_kpa):
     """
-    Estimate rolling resistance coefficient from tyre type and inflation pressure.
-    Higher pressure reduces Crr. Reference pressure is 280 kPa.
+    Phase 1: Estimate Crr from tyre type and pressure only.
+    Higher pressure reduces Crr. Reference is 280 kPa.
     """
-    base = BASE_CRR.get(tyre_type, 0.010)
+    base = BASE_CRR_P1.get(tyre_type, 0.010)
     pressure_factor = (REF_PRESSURE_KPA / max(tyre_pressure_kpa, 50.0)) ** 0.5
     return round(base * pressure_factor, 5)
+
+
+# Phase 2A Crr base values (tyre-type only, before loaded-radius correction)
+BASE_CRR_P2 = {"Highway": 0.010, "All-Terrain": 0.013, "Mud-Terrain": 0.017}
+
+def calc_crr_p2(tyre_type, loaded_radius_m, unloaded_radius_m):
+    """
+    Phase 2A: Estimate Crr using tyre type as the base, then apply a
+    loaded-radius deflection correction.
+      loaded_radius_ratio = loaded_radius / unloaded_radius
+      Crr_adjusted = Crr_base × (1 + 2.5 × max(0, 1 − loaded_radius_ratio))
+    A tyre carrying more load deflects more (lower loaded_radius_ratio),
+    which increases its rolling resistance.
+    """
+    base = BASE_CRR_P2.get(tyre_type, 0.012)
+    if unloaded_radius_m <= 0:
+        return base
+    loaded_radius_ratio = loaded_radius_m / unloaded_radius_m
+    crr = base * (1.0 + 2.5 * max(0.0, 1.0 - loaded_radius_ratio))
+    return crr
+
+
+def parse_tyre_size(tyre_str):
+    """
+    Parse a tyre size string such as "265/65R17".
+    Returns a dict with geometric properties, or None if the string cannot
+    be parsed.
+
+    Calculation:
+      section_width_m  = width_mm / 1000
+      sidewall_height_m = section_width_m × (aspect_ratio / 100)
+      rim_diameter_m   = rim_diameter_inches × 0.0254
+      unloaded_diameter_m = rim_diameter_m + 2 × sidewall_height_m
+      unloaded_radius_m   = unloaded_diameter_m / 2
+    """
+    match = re.match(r"(\d+)/(\d+)[Rr](\d+(?:\.\d+)?)", tyre_str.strip())
+    if not match:
+        return None
+    width_mm = float(match.group(1))
+    aspect_pct = float(match.group(2))
+    rim_in = float(match.group(3))
+
+    section_width_m = width_mm / 1000.0
+    sidewall_m = section_width_m * (aspect_pct / 100.0)
+    rim_diameter_m = rim_in * 0.0254
+    unloaded_diameter_m = rim_diameter_m + 2.0 * sidewall_m
+    unloaded_radius_m = unloaded_diameter_m / 2.0
+
+    return {
+        "section_width_m": section_width_m,
+        "aspect_ratio": aspect_pct / 100.0,
+        "rim_diameter_m": rim_diameter_m,
+        "sidewall_height_m": sidewall_m,
+        "unloaded_diameter_m": unloaded_diameter_m,
+        "unloaded_radius_m": unloaded_radius_m,
+    }
+
+
+def calc_contact_patch(load_per_tyre_N, tyre_pressure_kPa, section_width_m):
+    """
+    Estimate tyre contact patch dimensions.
+      contact_patch_area   = load_per_tyre (N) / tyre_pressure (Pa)
+      contact_patch_length = contact_patch_area / section_width
+    These are engineering approximations based on a uniform pressure assumption.
+    """
+    pressure_Pa = max(tyre_pressure_kPa * 1000.0, 1.0)
+    area_m2 = load_per_tyre_N / pressure_Pa
+    length_m = area_m2 / max(section_width_m, 0.001)
+    return area_m2, length_m
+
+
+def interp_time_at_speed(speeds_kmh, times_s, target_kmh):
+    """
+    Linearly interpolate to find the cumulative time at which the vehicle
+    first reaches target_kmh.
+    Returns None if the target speed was not reached in the simulation.
+    """
+    if not speeds_kmh:
+        return None
+    # If the simulation starts at or above the target, return start time
+    if speeds_kmh[0] >= target_kmh:
+        return times_s[0] if abs(speeds_kmh[0] - target_kmh) < 1e-6 else None
+    for i in range(1, len(speeds_kmh)):
+        if speeds_kmh[i - 1] < target_kmh <= speeds_kmh[i]:
+            frac = (target_kmh - speeds_kmh[i - 1]) / (speeds_kmh[i] - speeds_kmh[i - 1])
+            return times_s[i - 1] + frac * (times_s[i] - times_s[i - 1])
+    return None  # target not reached
+
 
 # ─── CONSTANTS ───────────────────────────────────────────────────────────────────
 
@@ -226,6 +318,12 @@ T_engine = st.sidebar.number_input(
     min_value=0.0, step=10.0,
     key=f"te_{vk}",
 )
+peak_power_kW = st.sidebar.number_input(
+    "Peak engine power (kW)",
+    value=float(vp["peak_power_kW"]),
+    min_value=1.0, step=5.0,
+    key=f"pp_{vk}",
+)
 
 # Gear selector — selectbox for named profiles, manual entry for Custom
 if selected_vehicle == "Custom":
@@ -240,7 +338,7 @@ else:
     ]
     default_gear_idx = len(gear_labels) - 1  # top gear by default
     selected_gear_label = st.sidebar.selectbox(
-        "Select Gear for Calculation",
+        "Select Gear for Phase 1 Calculation",
         gear_labels,
         index=default_gear_idx,
         key=f"gear_{vk}",
@@ -390,12 +488,12 @@ air_density = st.sidebar.number_input(
 
 st.sidebar.divider()
 
-st.sidebar.subheader("Operating Condition")
+st.sidebar.subheader("Phase 1 — Operating Condition")
 speed_kmh = st.sidebar.number_input(
     "Vehicle speed (km/h)", value=100.0, min_value=0.0, step=5.0
 )
 
-# ─── CALCULATIONS ────────────────────────────────────────────────────────────────
+# ─── PHASE 1 CALCULATIONS ────────────────────────────────────────────────────────
 
 # Speed conversion: km/h to m/s
 V = speed_kmh / 3.6
@@ -436,6 +534,36 @@ a = F_net / m_total
 
 # Estimated hitch force (force transmitted through towbar to trailer)
 F_hitch = m_trailer * a + F_rr_trailer + F_aero_trailer
+
+# ─── PHASE 2A — TYRE GEOMETRY & ADJUSTED CRR ─────────────────────────────────────
+# These are used by the Phase 2A simulation and the Profile Summary.
+
+# Parse tyre size strings to get unloaded geometry
+veh_tyre_geom = parse_tyre_size(vp["tyre_size"])
+trl_tyre_geom = parse_tyre_size(tp["tyre_size"])
+
+# Unloaded radii (fall back to loaded radius if parse fails)
+veh_unloaded_radius = veh_tyre_geom["unloaded_radius_m"] if veh_tyre_geom else tyre_radius
+trl_unloaded_radius = trl_tyre_geom["unloaded_radius_m"] if trl_tyre_geom else trailer_tyre_radius
+
+# Tyre deflection under load
+veh_tyre_deflection = max(0.0, veh_unloaded_radius - tyre_radius)
+trl_tyre_deflection = max(0.0, trl_unloaded_radius - trailer_tyre_radius)
+
+# Contact patch calculations
+veh_section_width = veh_tyre_geom["section_width_m"] if veh_tyre_geom else 0.265
+trl_section_width = trl_tyre_geom["section_width_m"] if trl_tyre_geom else 0.235
+
+veh_cp_area, veh_cp_length = calc_contact_patch(
+    avg_vehicle_load_per_tyre_N, vehicle_tyre_pressure, veh_section_width
+)
+trl_cp_area, trl_cp_length = calc_contact_patch(
+    avg_trailer_load_per_tyre_N, trailer_tyre_pressure, trl_section_width
+)
+
+# Phase 2A adjusted Crr (loaded-radius correction applied)
+Crr_veh_p2 = calc_crr_p2(vehicle_tyre_type, tyre_radius, veh_unloaded_radius)
+Crr_trl_p2 = calc_crr_p2(trailer_tyre_type, trailer_tyre_radius, trl_unloaded_radius)
 
 # ─── MAIN AREA ───────────────────────────────────────────────────────────────────
 
@@ -479,8 +607,13 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Vehicle frontal area: {A_vehicle:.2f} m²")
         st.write(f"Tyre type: {vehicle_tyre_type}")
         st.write(f"Tyre pressure: {vehicle_tyre_pressure:.0f} kPa")
-        st.write(f"Estimated vehicle Crr: {Crr_vehicle:.5f}")
+        st.write(f"Unloaded tyre radius: {veh_unloaded_radius:.3f} m")
+        st.write(f"Loaded tyre radius: {tyre_radius:.3f} m")
+        st.write(f"Tyre deflection: {veh_tyre_deflection*1000:.1f} mm")
         st.write(f"Avg vehicle load per tyre: {avg_vehicle_load_per_tyre_N:,.0f} N  ({avg_vehicle_load_per_tyre_N/1000:.2f} kN)")
+        st.write(f"Contact patch area: {veh_cp_area*10000:.1f} cm²  |  length: {veh_cp_length*100:.1f} cm")
+        st.write(f"Phase 1 Crr (pressure-corrected): {Crr_vehicle:.5f}")
+        st.write(f"Phase 2A Crr (loaded-radius-corrected): {Crr_veh_p2:.5f}")
         st.write(f"Selected gear ratio: {gear_ratio:.3f}")
         st.write(f"Final drive ratio: {final_drive_ratio:.3f}")
 
@@ -492,11 +625,16 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Tow ball mass: {tow_ball_mass:,.0f} kg")
         st.write(f"Trailer tyre supported mass: {trailer_tyre_supported_mass:,.0f} kg")
         st.write(f"Trailer Cd: {Cd_trailer:.2f}")
-        st.write(f"Trailer frontal area: {A_trailer:.2f} m²  ({frontal_width:.2f} m x {frontal_height:.2f} m)")
+        st.write(f"Trailer frontal area: {A_trailer:.2f} m²  ({frontal_width:.2f} m × {frontal_height:.2f} m)")
         st.write(f"Tyre type: {trailer_tyre_type}")
         st.write(f"Tyre pressure: {trailer_tyre_pressure:.0f} kPa")
-        st.write(f"Estimated trailer Crr: {Crr_trailer:.5f}")
+        st.write(f"Unloaded tyre radius: {trl_unloaded_radius:.3f} m")
+        st.write(f"Loaded tyre radius: {trailer_tyre_radius:.3f} m")
+        st.write(f"Tyre deflection: {trl_tyre_deflection*1000:.1f} mm")
         st.write(f"Avg trailer load per tyre: {avg_trailer_load_per_tyre_N:,.0f} N  ({avg_trailer_load_per_tyre_N/1000:.2f} kN)")
+        st.write(f"Contact patch area: {trl_cp_area*10000:.1f} cm²  |  length: {trl_cp_length*100:.1f} cm")
+        st.write(f"Phase 1 Crr (pressure-corrected): {Crr_trailer:.5f}")
+        st.write(f"Phase 2A Crr (loaded-radius-corrected): {Crr_trl_p2:.5f}")
 
     st.markdown("---")
     st.markdown("**Combination**")
@@ -614,3 +752,312 @@ ax.spines["right"].set_visible(False)
 plt.tight_layout()
 st.pyplot(fig)
 plt.close(fig)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 2A — PREDICTED LEVEL ROAD ACCELERATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+st.divider()
+st.header("Phase 2A — Predicted Level Road Acceleration")
+st.markdown(
+    """
+    Simulates the level-road acceleration of the selected vehicle and trailer combination
+    using a stepped-speed Euler integration. At each speed step the gear giving the highest
+    available tractive force is selected automatically. Results are compared against
+    standard level-road acceleration test targets.
+
+    **Assumptions:** flat level road · no wind · no gradient · constant peak torque and power
+    (no torque-curve mapping). Aero drag basic (no yaw, no wind).
+    """
+)
+
+# ── Simulation Inputs ─────────────────────────────────────────────────────────
+
+col_a, col_b, col_c = st.columns(3)
+sim_start_kmh = col_a.number_input(
+    "Start speed (km/h)", value=0.0, min_value=0.0, step=1.0, key="sim_start"
+)
+sim_target_kmh = col_b.number_input(
+    "Target speed (km/h)", value=96.6, min_value=1.0, step=1.0, key="sim_target"
+)
+sim_step_kmh = col_c.number_input(
+    "Speed step (km/h)", value=0.5, min_value=0.01, max_value=5.0, step=0.1,
+    format="%.2f", key="sim_step"
+)
+
+# ── Phase 2A Rolling Resistance ───────────────────────────────────────────────
+# Uses loaded-radius-corrected Crr (Crr_veh_p2, Crr_trl_p2) already computed above.
+# Vehicle: F_rr_veh_p2 = Crr_veh_p2 × m_vehicle × g
+# Trailer: F_rr_trl_p2 = Crr_trl_p2 × trailer_tyre_supported_mass × g
+#   (only the mass carried on the trailer tyres, excluding tow ball load)
+F_rr_veh_p2 = Crr_veh_p2 * m_vehicle * g
+F_rr_trl_p2 = Crr_trl_p2 * trailer_tyre_supported_mass * g
+
+# Peak engine power in watts
+P_watts = peak_power_kW * 1000.0
+
+# Gear ratios list to evaluate at each speed step
+sim_gear_ratios = vp["gear_ratios"]  # use profile's full gear list
+
+# ── Build Speed Array ─────────────────────────────────────────────────────────
+# Generate evenly spaced speed steps from start to target.
+# Include the exact target speed even if it does not fall on a step boundary.
+n_steps = math.ceil((sim_target_kmh - sim_start_kmh) / sim_step_kmh)
+sim_speeds_kmh = [sim_start_kmh + i * sim_step_kmh for i in range(n_steps + 1)]
+# Clamp to target and ensure target is the last point
+sim_speeds_kmh = [s for s in sim_speeds_kmh if s <= sim_target_kmh + 1e-9]
+if not sim_speeds_kmh or abs(sim_speeds_kmh[-1] - sim_target_kmh) > 1e-6:
+    sim_speeds_kmh.append(sim_target_kmh)
+
+# ── Acceleration Simulation Loop ──────────────────────────────────────────────
+sim_rows = []          # detailed table data
+sim_speed_out = []     # speed at each recorded point (km/h)
+sim_time_out = []      # cumulative time to reach each recorded speed (s)
+sim_stopped = False    # True if a ≤ 0 before target was reached
+
+cumulative_time = 0.0
+
+for idx, v_kmh in enumerate(sim_speeds_kmh):
+
+    # 1. Convert speed to m/s
+    V_mps = v_kmh / 3.6
+
+    # 2. Aerodynamic drag at this speed (flat road, no wind)
+    F_aero_veh = 0.5 * air_density * Cd_vehicle * A_vehicle * V_mps ** 2
+    F_aero_trl = 0.5 * air_density * Cd_trailer * A_trailer * V_mps ** 2
+
+    # 3. Rolling resistance (constant — speed-independent for this model)
+    F_rr_veh = F_rr_veh_p2
+    F_rr_trl = F_rr_trl_p2
+
+    # 4. Total resistance
+    F_res = F_rr_veh + F_rr_trl + F_aero_veh + F_aero_trl
+
+    # 5. Find the gear that delivers the highest available tractive force.
+    #    For each gear:
+    #      T_wheel  = T_engine × gear_ratio × final_drive_ratio × driveline_efficiency
+    #      F_torque = T_wheel / loaded_tyre_radius   (torque-limited tractive force)
+    #      F_power  = P_watts / max(V_mps, 1.0)      (power-limited tractive force)
+    #      F_avail  = min(F_torque, F_power)
+    #    Select the gear with the highest F_avail.
+    best_F_avail = -1.0
+    best_gear_num = 1
+
+    for gi, gr in enumerate(sim_gear_ratios):
+        T_whl = T_engine * gr * final_drive_ratio * driveline_efficiency
+        F_torque_g = T_whl / tyre_radius
+        F_power_g = P_watts / max(V_mps, 1.0)
+        F_avail_g = min(F_torque_g, F_power_g)
+        if F_avail_g > best_F_avail:
+            best_F_avail = F_avail_g
+            best_gear_num = gi + 1  # 1-indexed gear number
+
+    # 6. Net force and acceleration
+    F_net_sim = best_F_avail - F_res
+    a_sim = F_net_sim / m_total
+
+    # 7. Record this speed point with its arrival time
+    sim_speed_out.append(v_kmh)
+    sim_time_out.append(cumulative_time)
+    sim_rows.append({
+        "Speed (km/h)": round(v_kmh, 2),
+        "Gear": best_gear_num,
+        "F_available (N)": round(best_F_avail, 1),
+        "F_rr Vehicle (N)": round(F_rr_veh, 1),
+        "F_rr Trailer (N)": round(F_rr_trl, 1),
+        "F_aero Vehicle (N)": round(F_aero_veh, 1),
+        "F_aero Trailer (N)": round(F_aero_trl, 1),
+        "F_resistance (N)": round(F_res, 1),
+        "F_net (N)": round(F_net_sim, 1),
+        "Acceleration (m/s²)": round(a_sim, 4),
+        "Cumulative Time (s)": round(cumulative_time, 3),
+    })
+
+    # 8. If acceleration ≤ 0, vehicle cannot reach higher speeds — stop simulation
+    if a_sim <= 0:
+        sim_stopped = True
+        break
+
+    # 9. Time increment to reach the next speed step
+    #    dt = dV (m/s) / a (m/s²)  →  time to traverse this speed band
+    if idx < len(sim_speeds_kmh) - 1:
+        next_v = sim_speeds_kmh[idx + 1]
+        dV_mps = (next_v - v_kmh) / 3.6
+        dt = dV_mps / a_sim
+        cumulative_time += dt
+
+# ── Milestone Time Interpolation ──────────────────────────────────────────────
+# Test targets reference IVM (in-vehicle measurement) from 0 km/h.
+# Interpolate to find exact crossing times.
+T_48 = interp_time_at_speed(sim_speed_out, sim_time_out, 48.3)
+T_64 = interp_time_at_speed(sim_speed_out, sim_time_out, 64.4)
+T_96 = interp_time_at_speed(sim_speed_out, sim_time_out, 96.6)
+
+# 64.4→96.6 km/h window time (subtract crossing times)
+if T_64 is not None and T_96 is not None:
+    T_64_96 = T_96 - T_64
+else:
+    T_64_96 = None
+
+# ── PASS/FAIL Evaluation ──────────────────────────────────────────────────────
+# Standard level-road acceleration targets:
+#   IVM to  48.3 km/h ≤ 12 s
+#   IVM to  96.6 km/h ≤ 30 s
+#   64.4 to 96.6 km/h ≤ 18 s
+
+def fmt_time(t):
+    return f"{t:.2f} s" if t is not None else "Not reached"
+
+def pf(t, limit):
+    if t is None:
+        return "❌ FAIL"
+    return "✅ PASS" if t <= limit else "❌ FAIL"
+
+overall_pass = (
+    T_48 is not None and T_48 <= 12
+    and T_96 is not None and T_96 <= 30
+    and T_64_96 is not None and T_64_96 <= 18
+)
+
+# ── Metric Cards ──────────────────────────────────────────────────────────────
+
+if sim_stopped and (T_96 is None):
+    top_speed = sim_speed_out[-1] if sim_speed_out else 0
+    st.warning(
+        f"Simulation stopped at {top_speed:.1f} km/h — net force reached zero "
+        "before the target speed. Vehicle cannot reach the target under these conditions."
+    )
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Time — IVM to 48.3 km/h", fmt_time(T_48), delta="Limit: 12 s", delta_color="off")
+col2.metric("Time — IVM to 96.6 km/h", fmt_time(T_96), delta="Limit: 30 s", delta_color="off")
+col3.metric("Time — 64.4 to 96.6 km/h", fmt_time(T_64_96), delta="Limit: 18 s", delta_color="off")
+col4.metric("Overall Result", "✅ PASS" if overall_pass else "❌ FAIL")
+
+# ── PASS/FAIL Table ───────────────────────────────────────────────────────────
+
+st.subheader("Acceleration Test Results")
+
+pf_data = {
+    "Test Target": [
+        "IVM to 48.3 km/h",
+        "IVM to 96.6 km/h",
+        "64.4 to 96.6 km/h",
+    ],
+    "Predicted Time": [fmt_time(T_48), fmt_time(T_96), fmt_time(T_64_96)],
+    "Limit (s)": [12, 30, 18],
+    "Pass / Fail": [pf(T_48, 12), pf(T_96, 30), pf(T_64_96, 18)],
+}
+df_pf = pd.DataFrame(pf_data)
+st.dataframe(df_pf, use_container_width=True, hide_index=True)
+
+# ── Four Plots ────────────────────────────────────────────────────────────────
+
+if len(sim_rows) > 1:
+    df_sim = pd.DataFrame(sim_rows)
+
+    col_left, col_right = st.columns(2)
+
+    # Plot 1: Speed vs Cumulative Time
+    with col_left:
+        fig1, ax1 = plt.subplots(figsize=(6, 4))
+        ax1.plot(
+            df_sim["Cumulative Time (s)"],
+            df_sim["Speed (km/h)"],
+            color="#1976D2", linewidth=2,
+        )
+        # Mark standard test milestones
+        for target_kmh, target_s, label in [
+            (48.3, 12, "48.3 km/h / 12 s"),
+            (96.6, 30, "96.6 km/h / 30 s"),
+        ]:
+            ax1.axhline(target_kmh, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+            ax1.axvline(target_s, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+        if T_48 is not None:
+            ax1.plot(T_48, 48.3, "o", color="#E64A19", zorder=5)
+            ax1.annotate(f"{T_48:.1f} s", (T_48, 48.3), textcoords="offset points",
+                         xytext=(6, -12), fontsize=8, color="#E64A19")
+        if T_96 is not None:
+            ax1.plot(T_96, 96.6, "o", color="#E64A19", zorder=5)
+            ax1.annotate(f"{T_96:.1f} s", (T_96, 96.6), textcoords="offset points",
+                         xytext=(6, -12), fontsize=8, color="#E64A19")
+        ax1.set_xlabel("Time (s)", fontsize=10)
+        ax1.set_ylabel("Speed (km/h)", fontsize=10)
+        ax1.set_title("Speed vs Time", fontsize=11, fontweight="bold")
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig1)
+        plt.close(fig1)
+
+    # Plot 2: Acceleration vs Speed
+    with col_right:
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        ax2.plot(
+            df_sim["Speed (km/h)"],
+            df_sim["Acceleration (m/s²)"],
+            color="#388E3C", linewidth=2,
+        )
+        ax2.axhline(0, color="red", linestyle="--", linewidth=0.8)
+        ax2.set_xlabel("Speed (km/h)", fontsize=10)
+        ax2.set_ylabel("Acceleration (m/s²)", fontsize=10)
+        ax2.set_title("Acceleration vs Speed", fontsize=11, fontweight="bold")
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig2)
+        plt.close(fig2)
+
+    # Plot 3: Available Tractive Force vs Speed
+    with col_left:
+        fig3, ax3 = plt.subplots(figsize=(6, 4))
+        ax3.plot(
+            df_sim["Speed (km/h)"],
+            df_sim["F_available (N)"],
+            color="#7B1FA2", linewidth=2, label="F available (best gear)",
+        )
+        ax3.plot(
+            df_sim["Speed (km/h)"],
+            df_sim["F_resistance (N)"],
+            color="#E64A19", linewidth=2, linestyle="--", label="F resistance",
+        )
+        ax3.set_xlabel("Speed (km/h)", fontsize=10)
+        ax3.set_ylabel("Force (N)", fontsize=10)
+        ax3.set_title("Tractive Force vs Speed", fontsize=11, fontweight="bold")
+        ax3.legend(fontsize=8)
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig3)
+        plt.close(fig3)
+
+    # Plot 4: Selected Gear vs Speed
+    with col_right:
+        fig4, ax4 = plt.subplots(figsize=(6, 4))
+        ax4.step(
+            df_sim["Speed (km/h)"],
+            df_sim["Gear"],
+            color="#0288D1", linewidth=2, where="post",
+        )
+        ax4.set_xlabel("Speed (km/h)", fontsize=10)
+        ax4.set_ylabel("Gear", fontsize=10)
+        ax4.set_yticks(range(1, len(sim_gear_ratios) + 1))
+        ax4.set_title("Selected Gear vs Speed", fontsize=11, fontweight="bold")
+        ax4.spines["top"].set_visible(False)
+        ax4.spines["right"].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig4)
+        plt.close(fig4)
+
+    # ── Expandable Simulation Table ───────────────────────────────────────────
+
+    with st.expander("Simulation Data Table", expanded=False):
+        st.caption(
+            "Step-by-step simulation output. Each row shows conditions at the start of "
+            "that speed band. Cumulative time is the time elapsed to reach that speed."
+        )
+        st.dataframe(df_sim, use_container_width=True, hide_index=True)
+
+else:
+    st.info("Increase the simulation speed range (target > start) to run the acceleration simulation.")
+
