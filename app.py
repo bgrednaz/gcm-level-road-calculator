@@ -1,37 +1,29 @@
 import re
 import math
+import json
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="GCM Level Road Calculator", layout="wide")
 
-# ─── VEHICLE PROFILES ────────────────────────────────────────────────────────────
-# Each profile contains:
-#   idle_rpm      — engine idle speed (RPM); engine will not drop below this
-#   redline_rpm   — maximum engine speed (RPM); gear is invalid if RPM exceeds this
-#   torque_curve  — list of (RPM, torque_Nm) tuples defining the engine torque curve
-#                   Interpolated at the operating RPM; clamped to endpoints if outside.
-#   peak_power_kW — hard power cap applied after torque interpolation
+# ─── DEFAULT VEHICLE PROFILES ─────────────────────────────────────────────────
+# These are factory defaults. Session edits are stored in
+# st.session_state["vehicle_profiles"] and reset on browser refresh.
 
-vehicle_profiles = {
+DEFAULT_VEHICLE_PROFILES = {
     "Test Vehicle 1": {
         "vehicle_mass": 3500.0,
         "rated_GCM": 8000.0,
         "peak_torque_Nm": 400.0,
+        "peak_torque_rpm": 2000,
         "peak_power_kW": 200.0,
+        "peak_power_rpm": 4000,
         "idle_rpm": 800,
         "redline_rpm": 4500,
         "torque_curve": [
-            (800,  220),
-            (1000, 250),
-            (1500, 350),
-            (2000, 400),
-            (2500, 400),
-            (3000, 380),
-            (3500, 350),
-            (4000, 320),
-            (4500, 280),
+            (800,  220), (1000, 250), (1500, 350), (2000, 400),
+            (2500, 400), (3000, 380), (3500, 350), (4000, 320), (4500, 280),
         ],
         "final_drive_ratio": 3.70,
         "driveline_efficiency": 0.88,
@@ -48,18 +40,14 @@ vehicle_profiles = {
         "vehicle_mass": 2200.0,
         "rated_GCM": 6000.0,
         "peak_torque_Nm": 500.0,
+        "peak_torque_rpm": 1600,
         "peak_power_kW": 150.0,
+        "peak_power_rpm": 3200,
         "idle_rpm": 750,
         "redline_rpm": 3800,
         "torque_curve": [
-            (750,  250),
-            (1200, 420),
-            (1600, 500),
-            (2000, 500),
-            (2400, 480),
-            (2800, 440),
-            (3200, 380),
-            (3800, 300),
+            (750,  250), (1200, 420), (1600, 500), (2000, 500),
+            (2400, 480), (2800, 440), (3200, 380), (3800, 300),
         ],
         "final_drive_ratio": 3.31,
         "driveline_efficiency": 0.88,
@@ -76,18 +64,14 @@ vehicle_profiles = {
         "vehicle_mass": 2700.0,
         "rated_GCM": 7500.0,
         "peak_torque_Nm": 650.0,
+        "peak_torque_rpm": 1600,
         "peak_power_kW": 170.0,
+        "peak_power_rpm": 3200,
         "idle_rpm": 750,
         "redline_rpm": 3800,
         "torque_curve": [
-            (750,  320),
-            (1200, 550),
-            (1600, 650),
-            (2000, 650),
-            (2400, 620),
-            (2800, 580),
-            (3200, 480),
-            (3800, 370),
+            (750,  320), (1200, 550), (1600, 650), (2000, 650),
+            (2400, 620), (2800, 580), (3200, 480), (3800, 370),
         ],
         "final_drive_ratio": 3.70,
         "driveline_efficiency": 0.87,
@@ -104,19 +88,14 @@ vehicle_profiles = {
         "vehicle_mass": 2500.0,
         "rated_GCM": 7700.0,
         "peak_torque_Nm": 600.0,
+        "peak_torque_rpm": 2400,
         "peak_power_kW": 250.0,
+        "peak_power_rpm": 4200,
         "idle_rpm": 600,
         "redline_rpm": 5500,
         "torque_curve": [
-            (600,  280),
-            (1200, 430),
-            (1800, 570),
-            (2400, 600),
-            (3000, 590),
-            (3600, 560),
-            (4200, 500),
-            (5000, 400),
-            (5500, 340),
+            (600,  280), (1200, 430), (1800, 570), (2400, 600),
+            (3000, 590), (3600, 560), (4200, 500), (5000, 400), (5500, 340),
         ],
         "final_drive_ratio": 3.92,
         "driveline_efficiency": 0.88,
@@ -133,18 +112,14 @@ vehicle_profiles = {
         "vehicle_mass": 2700.0,
         "rated_GCM": 7000.0,
         "peak_torque_Nm": 650.0,
+        "peak_torque_rpm": 1600,
         "peak_power_kW": 200.0,
+        "peak_power_rpm": 3200,
         "idle_rpm": 750,
         "redline_rpm": 4000,
         "torque_curve": [
-            (750,  300),
-            (1200, 500),
-            (1600, 650),
-            (2000, 650),
-            (2400, 630),
-            (2800, 580),
-            (3200, 480),
-            (4000, 360),
+            (750,  300), (1200, 500), (1600, 650), (2000, 650),
+            (2400, 630), (2800, 580), (3200, 480), (4000, 360),
         ],
         "final_drive_ratio": 3.31,
         "driveline_efficiency": 0.88,
@@ -161,18 +136,14 @@ vehicle_profiles = {
         "vehicle_mass": 3500.0,
         "rated_GCM": 8000.0,
         "peak_torque_Nm": 400.0,
+        "peak_torque_rpm": 2000,
         "peak_power_kW": 200.0,
+        "peak_power_rpm": 4000,
         "idle_rpm": 800,
         "redline_rpm": 4500,
         "torque_curve": [
-            (800,  200),
-            (1500, 350),
-            (2000, 400),
-            (2500, 400),
-            (3000, 380),
-            (3500, 350),
-            (4000, 300),
-            (4500, 250),
+            (800,  200), (1500, 350), (2000, 400), (2500, 400),
+            (3000, 380), (3500, 350), (4000, 300), (4500, 250),
         ],
         "final_drive_ratio": 3.70,
         "driveline_efficiency": 0.88,
@@ -189,148 +160,96 @@ vehicle_profiles = {
 
 # ─── TRAILER PROFILES ────────────────────────────────────────────────────────────
 
-trailer_profiles = {
+DEFAULT_TRAILER_PROFILES = {
     "AIC Dual-Axle Flat Front Trailer": {
-        "trailer_mass": 3500.0,
-        "tow_ball_mass": 200.0,
-        "num_axles": 2,
-        "num_tyres": 4,
-        "tyre_size": "235/75R15",
-        "tyre_pressure_kPa": 350.0,
-        "tyre_radius": 0.365,
-        "tyre_type": "Highway",
-        "Cd": 0.55,
-        "frontal_width": 2.40,
-        "frontal_height": 1.80,
+        "trailer_mass": 3500.0, "tow_ball_mass": 200.0,
+        "num_axles": 2, "num_tyres": 4,
+        "tyre_size": "235/75R15", "tyre_pressure_kPa": 350.0,
+        "tyre_radius": 0.365, "tyre_type": "Highway",
+        "Cd": 0.55, "frontal_width": 2.40, "frontal_height": 1.80,
     },
     "Light Load Configuration": {
-        "trailer_mass": 1500.0,
-        "tow_ball_mass": 100.0,
-        "num_axles": 2,
-        "num_tyres": 4,
-        "tyre_size": "205/75R15",
-        "tyre_pressure_kPa": 300.0,
-        "tyre_radius": 0.340,
-        "tyre_type": "Highway",
-        "Cd": 0.55,
-        "frontal_width": 2.20,
-        "frontal_height": 1.60,
+        "trailer_mass": 1500.0, "tow_ball_mass": 100.0,
+        "num_axles": 2, "num_tyres": 4,
+        "tyre_size": "205/75R15", "tyre_pressure_kPa": 300.0,
+        "tyre_radius": 0.340, "tyre_type": "Highway",
+        "Cd": 0.55, "frontal_width": 2.20, "frontal_height": 1.60,
     },
     "Balanced Load Configuration": {
-        "trailer_mass": 2500.0,
-        "tow_ball_mass": 150.0,
-        "num_axles": 2,
-        "num_tyres": 4,
-        "tyre_size": "225/75R15",
-        "tyre_pressure_kPa": 340.0,
-        "tyre_radius": 0.355,
-        "tyre_type": "Highway",
-        "Cd": 0.55,
-        "frontal_width": 2.30,
-        "frontal_height": 1.70,
+        "trailer_mass": 2500.0, "tow_ball_mass": 150.0,
+        "num_axles": 2, "num_tyres": 4,
+        "tyre_size": "225/75R15", "tyre_pressure_kPa": 340.0,
+        "tyre_radius": 0.355, "tyre_type": "Highway",
+        "Cd": 0.55, "frontal_width": 2.30, "frontal_height": 1.70,
     },
     "Heavy Front Load Configuration": {
-        "trailer_mass": 3500.0,
-        "tow_ball_mass": 350.0,
-        "num_axles": 2,
-        "num_tyres": 4,
-        "tyre_size": "235/75R15",
-        "tyre_pressure_kPa": 380.0,
-        "tyre_radius": 0.365,
-        "tyre_type": "Highway",
-        "Cd": 0.55,
-        "frontal_width": 2.40,
-        "frontal_height": 1.90,
+        "trailer_mass": 3500.0, "tow_ball_mass": 350.0,
+        "num_axles": 2, "num_tyres": 4,
+        "tyre_size": "235/75R15", "tyre_pressure_kPa": 380.0,
+        "tyre_radius": 0.365, "tyre_type": "Highway",
+        "Cd": 0.55, "frontal_width": 2.40, "frontal_height": 1.90,
     },
     "Custom": {
-        "trailer_mass": 2000.0,
-        "tow_ball_mass": 150.0,
-        "num_axles": 2,
-        "num_tyres": 4,
-        "tyre_size": "225/75R15",
-        "tyre_pressure_kPa": 340.0,
-        "tyre_radius": 0.355,
-        "tyre_type": "Highway",
-        "Cd": 0.55,
-        "frontal_width": 2.30,
-        "frontal_height": 1.70,
+        "trailer_mass": 2000.0, "tow_ball_mass": 150.0,
+        "num_axles": 2, "num_tyres": 4,
+        "tyre_size": "225/75R15", "tyre_pressure_kPa": 340.0,
+        "tyre_radius": 0.355, "tyre_type": "Highway",
+        "Cd": 0.55, "frontal_width": 2.30, "frontal_height": 1.70,
     },
 }
 
+# ─── SESSION STATE INIT ───────────────────────────────────────────────────────────
+# Deep-copy profiles into session state on first load so edits persist per session.
+
+if "vehicle_profiles" not in st.session_state:
+    st.session_state["vehicle_profiles"] = {
+        name: {**prof, "torque_curve": [tuple(pt) for pt in prof["torque_curve"]]}
+        for name, prof in DEFAULT_VEHICLE_PROFILES.items()
+    }
+
+# ─── CONSTANTS & TYRE TYPES ──────────────────────────────────────────────────────
+
+g = 9.81
+TYRE_TYPES = ["Highway", "All-Terrain", "Mud-Terrain"]
+LOW_SPEED_MPS = 1.0   # m/s — below this speed, engine is at idle for launch
+
 # ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────────
 
-TYRE_TYPES = ["Highway", "All-Terrain", "Mud-Terrain"]
-
-# Phase 1 Crr base values (pressure-corrected)
 BASE_CRR_P1 = {"Highway": 0.0075, "All-Terrain": 0.011, "Mud-Terrain": 0.015}
 REF_PRESSURE_KPA = 280.0
 
 def estimate_crr(tyre_type, tyre_pressure_kpa):
-    """Phase 1: Crr from tyre type and pressure. Reference pressure 280 kPa."""
     base = BASE_CRR_P1.get(tyre_type, 0.010)
-    pressure_factor = (REF_PRESSURE_KPA / max(tyre_pressure_kpa, 50.0)) ** 0.5
-    return round(base * pressure_factor, 5)
+    return round(base * (REF_PRESSURE_KPA / max(tyre_pressure_kpa, 50.0)) ** 0.5, 5)
 
-
-# Phase 2A Crr base values (with loaded-radius correction)
 BASE_CRR_P2 = {"Highway": 0.010, "All-Terrain": 0.013, "Mud-Terrain": 0.017}
 
 def calc_crr_p2(tyre_type, loaded_radius_m, unloaded_radius_m):
-    """
-    Phase 2A: Crr_adjusted = Crr_base × (1 + 2.5 × max(0, 1 − loaded/unloaded)).
-    Higher deflection (lower loaded_radius_ratio) increases Crr.
-    """
     base = BASE_CRR_P2.get(tyre_type, 0.012)
     if unloaded_radius_m <= 0:
         return base
     ratio = loaded_radius_m / unloaded_radius_m
     return base * (1.0 + 2.5 * max(0.0, 1.0 - ratio))
 
-
 def parse_tyre_size(tyre_str):
-    """
-    Parse "265/65R17" → section_width_m, sidewall_height_m, rim_diameter_m,
-    unloaded_diameter_m, unloaded_radius_m.  Returns None if unparseable.
-    """
-    match = re.match(r"(\d+)/(\d+)[Rr](\d+(?:\.\d+)?)", tyre_str.strip())
-    if not match:
+    m = re.match(r"(\d+)/(\d+)[Rr](\d+(?:\.\d+)?)", tyre_str.strip())
+    if not m:
         return None
-    width_mm = float(match.group(1))
-    aspect_pct = float(match.group(2))
-    rim_in = float(match.group(3))
-
-    sw_m = width_mm / 1000.0
-    sh_m = sw_m * (aspect_pct / 100.0)
-    rd_m = rim_in * 0.0254
-    ud_m = rd_m + 2.0 * sh_m
-    return {
-        "section_width_m": sw_m,
-        "aspect_ratio": aspect_pct / 100.0,
-        "rim_diameter_m": rd_m,
-        "sidewall_height_m": sh_m,
-        "unloaded_diameter_m": ud_m,
-        "unloaded_radius_m": ud_m / 2.0,
-    }
-
+    sw = float(m.group(1)) / 1000.0
+    sh = sw * (float(m.group(2)) / 100.0)
+    rd = float(m.group(3)) * 0.0254
+    ud = rd + 2.0 * sh
+    return {"section_width_m": sw, "rim_diameter_m": rd,
+            "sidewall_height_m": sh, "unloaded_diameter_m": ud,
+            "unloaded_radius_m": ud / 2.0}
 
 def calc_contact_patch(load_N, pressure_kPa, section_width_m):
-    """
-    Contact patch area  = load / pressure  (uniform pressure assumption).
-    Contact patch length = area / section_width.
-    Engineering estimates only.
-    """
     p_Pa = max(pressure_kPa * 1000.0, 1.0)
     area = load_N / p_Pa
-    length = area / max(section_width_m, 0.001)
-    return area, length
-
+    return area, area / max(section_width_m, 0.001)
 
 def interp_torque(torque_curve, rpm):
-    """
-    Linearly interpolate engine torque from the torque curve at the given RPM.
-    Clamps to the first/last point if RPM is outside the curve range.
-    torque_curve: list of (rpm, torque_Nm) tuples, sorted ascending by RPM.
-    """
+    """Linear interpolation from torque curve; clamped to endpoints."""
     if not torque_curve:
         return None
     rpms    = [p[0] for p in torque_curve]
@@ -345,104 +264,88 @@ def interp_torque(torque_curve, rpm):
             return torques[i - 1] + frac * (torques[i] - torques[i - 1])
     return torques[-1]
 
-
 def select_best_gear(
     gear_ratios, final_drive_ratio, driveline_efficiency,
     tyre_radius_m, idle_rpm, redline_rpm, torque_curve,
     peak_power_W, V_mps, fallback_torque_Nm=400.0,
 ):
     """
-    Evaluate every gear at the given vehicle speed and select the one
-    that delivers the highest available tractive force.
+    Evaluate every gear at the given vehicle speed.
 
-    For each gear:
-      1. wheel_speed_rad_s = V_mps / tyre_radius_m
-      2. engine_rpm_calc   = wheel_speed × gear_ratio × final_drive × 60 / 2π
-      3. effective_rpm     = max(engine_rpm_calc, idle_rpm)   ← floor at idle
-      4. If effective_rpm > redline_rpm → gear marked INVALID
-      5. torque_at_rpm     = interpolated from curve (or fallback constant)
-      6. P_engine          = torque × effective_rpm × 2π / 60
-      7. P_capped          = min(P_engine, peak_power_W)
-      8. T_wheel           = torque × gear_ratio × final_drive × driveline_eff
-      9. F_torque          = T_wheel / tyre_radius
-     10. F_power           = P_capped / max(V_mps, 1.0)
-     11. F_available       = min(F_torque, F_power)
+    Validity rules
+    ─────────────
+    • At very low road speed (< 1 m/s) the engine is at idle for launch:
+        effective_rpm = max(calc_rpm, idle_rpm)
+    • At normal speed a gear whose calc_rpm falls below idle is INVALID
+        (the engine cannot rev that low while the vehicle is moving).
+    • Any gear whose effective_rpm exceeds redline is INVALID.
 
-    Returns:
-      gear_rows  — list of dicts, one per gear, with full calculation detail
-      best_idx   — index of selected gear (highest F_available among valid gears),
-                   or None if no gear is valid
+    For valid gears:
+      torque_Nm   = interpolated from torque_curve at effective_rpm
+      P_engine    = torque × effective_rpm × 2π / 60
+      P_capped    = min(P_engine, peak_power_W)
+      T_wheel     = torque × gear_ratio × final_drive × driveline_eff
+      F_torque    = T_wheel / tyre_radius
+      F_power     = P_capped / max(V_mps, 1.0)
+      F_available = min(F_torque, F_power)
+
+    Returns (gear_rows list, best_idx or None).
     """
     TWO_PI = 2.0 * math.pi
     wheel_rad_s = V_mps / max(tyre_radius_m, 0.001)
+    near_zero   = V_mps < LOW_SPEED_MPS
 
-    gear_rows = []
+    rows = []
     best_idx = None
-    best_F = -1.0
+    best_F   = -1.0
 
     for gi, gr in enumerate(gear_ratios):
-        # Engine speed at this road speed and gear
         rpm_calc = wheel_rad_s * gr * final_drive_ratio * 60.0 / TWO_PI
 
-        # Clamp to idle — engine doesn't stall at low road speed (launch scenario)
-        effective_rpm = max(rpm_calc, float(idle_rpm))
+        if near_zero:
+            effective_rpm = max(rpm_calc, float(idle_rpm))
+        else:
+            effective_rpm = rpm_calc
 
-        # Gear is invalid above redline
-        valid = effective_rpm <= redline_rpm
+        valid = (idle_rpm <= effective_rpm <= redline_rpm)
 
         if valid:
-            if torque_curve:
-                torque_Nm = interp_torque(torque_curve, effective_rpm)
-            else:
-                torque_Nm = fallback_torque_Nm  # constant peak torque fallback
-
-            # Engine power from torque and RPM, then cap at peak power
-            P_calc = torque_Nm * effective_rpm * TWO_PI / 60.0
-            P_capped = min(P_calc, peak_power_W)
-
-            # Wheel torque through gearbox and final drive
-            T_wheel = torque_Nm * gr * final_drive_ratio * driveline_efficiency
-
-            # Tractive force limited by torque, then by power
-            F_torque = T_wheel / max(tyre_radius_m, 0.001)
-            F_power  = P_capped / max(V_mps, 1.0)
-            F_avail  = min(F_torque, F_power)
+            tq = (interp_torque(torque_curve, effective_rpm)
+                  if torque_curve else fallback_torque_Nm)
+            P_eng   = tq * effective_rpm * TWO_PI / 60.0
+            P_cap   = min(P_eng, peak_power_W)
+            T_whl   = tq * gr * final_drive_ratio * driveline_efficiency
+            F_tq    = T_whl / max(tyre_radius_m, 0.001)
+            F_pw    = P_cap / max(V_mps, 1.0)
+            F_avail = min(F_tq, F_pw)
         else:
-            torque_Nm = None
-            P_calc = P_capped = None
-            T_wheel = F_torque = F_power = F_avail = None
+            tq = P_eng = P_cap = T_whl = F_tq = F_pw = F_avail = None
 
-        row = {
-            "Gear":               gi + 1,
-            "Gear Ratio":         round(gr, 3),
-            "Calc RPM":           round(rpm_calc, 0),
-            "Effective RPM":      round(effective_rpm, 0),
-            "Torque at RPM (Nm)": round(torque_Nm, 1)       if torque_Nm  is not None else None,
-            "Engine Power (W)":   round(P_calc, 0)           if P_calc     is not None else None,
-            "Capped Power (W)":   round(P_capped, 0)         if P_capped   is not None else None,
-            "F_torque (N)":       round(F_torque, 1)         if F_torque   is not None else None,
-            "F_power (N)":        round(F_power, 1)          if F_power    is not None else None,
-            "F_available (N)":    round(F_avail, 1)          if F_avail    is not None else None,
-            "Valid":              valid,
-            "Selected":           False,
-        }
-        gear_rows.append(row)
+        rows.append({
+            "Gear":             gi + 1,
+            "Gear Ratio":       round(gr, 3),
+            "Calc RPM":         round(rpm_calc, 0),
+            "Effective RPM":    round(effective_rpm, 0),
+            "Torque (Nm)":      round(tq, 1)       if tq      is not None else None,
+            "Eng Power (W)":    round(P_eng, 0)     if P_eng   is not None else None,
+            "Cap Power (W)":    round(P_cap, 0)     if P_cap   is not None else None,
+            "F_torque (N)":     round(F_tq, 1)      if F_tq    is not None else None,
+            "F_power (N)":      round(F_pw, 1)      if F_pw    is not None else None,
+            "F_available (N)":  round(F_avail, 1)   if F_avail is not None else None,
+            "Valid":            valid,
+            "Selected":         False,
+        })
 
         if valid and F_avail is not None and F_avail > best_F:
-            best_F = F_avail
+            best_F   = F_avail
             best_idx = gi
 
     if best_idx is not None:
-        gear_rows[best_idx]["Selected"] = True
+        rows[best_idx]["Selected"] = True
 
-    return gear_rows, best_idx
-
+    return rows, best_idx
 
 def interp_time_at_speed(speeds_kmh, times_s, target_kmh):
-    """
-    Linearly interpolate the cumulative time at which the vehicle first
-    reaches target_kmh.  Returns None if the speed was not reached.
-    """
     if not speeds_kmh:
         return None
     if speeds_kmh[0] >= target_kmh:
@@ -453,11 +356,6 @@ def interp_time_at_speed(speeds_kmh, times_s, target_kmh):
             return times_s[i - 1] + frac * (times_s[i] - times_s[i - 1])
     return None
 
-
-# ─── CONSTANTS ───────────────────────────────────────────────────────────────────
-
-g = 9.81  # m/s²
-
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
 
 st.sidebar.header("Inputs")
@@ -467,66 +365,183 @@ st.sidebar.header("Inputs")
 st.sidebar.subheader("Vehicle Profile")
 
 selected_vehicle = st.sidebar.selectbox(
-    "Select Vehicle Profile", list(vehicle_profiles.keys())
+    "Select Vehicle Profile",
+    list(st.session_state["vehicle_profiles"].keys()),
 )
-vp = vehicle_profiles[selected_vehicle]
-vk = selected_vehicle  # widget key prefix
+vp  = st.session_state["vehicle_profiles"][selected_vehicle]
+vk  = selected_vehicle   # widget key prefix
+_ver = st.session_state.get(f"ev_ver_{vk}", 0)
+_vkv = f"{vk}_v{_ver}"   # versioned key — refreshes widgets after apply/reset
 
 m_vehicle = st.sidebar.number_input(
     "Vehicle mass (kg)", value=float(vp["vehicle_mass"]),
-    min_value=0.0, step=50.0, key=f"m_vehicle_{vk}",
+    min_value=0.0, step=50.0, key=f"m_veh_{vk}",
 )
 GCM = st.sidebar.number_input(
     "Rated GCM (kg)", value=float(vp["rated_GCM"]),
     min_value=1.0, step=100.0, key=f"gcm_{vk}",
 )
-peak_power_kW = st.sidebar.number_input(
-    "Peak engine power (kW)", value=float(vp["peak_power_kW"]),
-    min_value=1.0, step=5.0, key=f"pp_{vk}",
-)
-final_drive_ratio = st.sidebar.number_input(
-    "Final drive ratio", value=float(vp["final_drive_ratio"]),
-    min_value=0.01, step=0.01, format="%.3f", key=f"fdr_{vk}",
-)
-driveline_efficiency = st.sidebar.number_input(
-    "Driveline efficiency (0-1)", value=float(vp["driveline_efficiency"]),
-    min_value=0.0, max_value=1.0, step=0.01, format="%.2f", key=f"de_{vk}",
-)
-tyre_radius = st.sidebar.number_input(
-    "Loaded tyre radius (m)", value=float(vp["tyre_radius"]),
-    min_value=0.01, step=0.005, format="%.3f", key=f"vtr_{vk}",
-)
-num_vehicle_tyres = int(st.sidebar.number_input(
-    "Tyres carrying load", value=int(vp["num_vehicle_tyres"]),
-    min_value=1, step=1, key=f"nvt_{vk}",
-))
-vehicle_tyre_pressure = st.sidebar.number_input(
-    "Tyre pressure (kPa)", value=float(vp["tyre_pressure_kPa"]),
-    min_value=50.0, step=10.0, key=f"vtp_{vk}",
-)
-vehicle_tyre_type = st.sidebar.selectbox(
-    "Tyre type", TYRE_TYPES,
-    index=TYRE_TYPES.index(vp["tyre_type"]), key=f"vtt_{vk}",
-)
-Cd_vehicle = st.sidebar.number_input(
-    "Vehicle Cd", value=float(vp["Cd"]),
-    min_value=0.0, step=0.01, format="%.2f", key=f"cdv_{vk}",
-)
-A_vehicle = st.sidebar.number_input(
-    "Vehicle frontal area (m2)", value=float(vp["frontal_area"]),
-    min_value=0.1, step=0.1, format="%.2f", key=f"afv_{vk}",
-)
+
+# ── Edit Vehicle Profile ──────────────────────────────────────────────────────────
+
+with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
+    st.caption(
+        "Changes apply to this browser session only. "
+        "Download JSON to save your profiles for future reference."
+    )
+
+    # ── Engine ──
+    st.markdown("**Engine**")
+    e_ptq     = st.number_input("Peak torque (Nm)",    value=float(vp["peak_torque_Nm"]),  min_value=0.0, step=10.0,  key=f"e_ptq_{_vkv}")
+    e_ptq_rpm = st.number_input("Peak torque RPM",     value=int(vp["peak_torque_rpm"]),    min_value=0, step=100,     key=f"e_ptq_rpm_{_vkv}")
+    e_ppw     = st.number_input("Peak power (kW)",     value=float(vp["peak_power_kW"]),   min_value=0.0, step=5.0,   key=f"e_ppw_{_vkv}")
+    e_ppw_rpm = st.number_input("Peak power RPM",      value=int(vp["peak_power_rpm"]),     min_value=0, step=100,     key=f"e_ppw_rpm_{_vkv}")
+    e_idle    = st.number_input("Idle RPM",            value=int(vp["idle_rpm"]),           min_value=0, step=50,      key=f"e_idle_{_vkv}")
+    e_redline = st.number_input("Redline RPM",         value=int(vp["redline_rpm"]),        min_value=100, step=100,   key=f"e_redline_{_vkv}")
+
+    # ── Driveline ──
+    st.markdown("**Driveline**")
+    e_fdr = st.number_input("Final drive ratio",        value=float(vp["final_drive_ratio"]),      min_value=0.01, step=0.01,  format="%.3f", key=f"e_fdr_{_vkv}")
+    e_de  = st.number_input("Driveline efficiency (0-1)", value=float(vp["driveline_efficiency"]), min_value=0.0, max_value=1.0, step=0.01, format="%.2f", key=f"e_de_{_vkv}")
+
+    # ── Tyres ──
+    st.markdown("**Tyres**")
+    e_ts   = st.text_input("Tyre size",                 value=vp["tyre_size"],                   key=f"e_ts_{_vkv}")
+    e_tr   = st.number_input("Loaded tyre radius (m)",  value=float(vp["tyre_radius"]),          min_value=0.01, step=0.005, format="%.3f", key=f"e_tr_{_vkv}")
+    e_nt   = st.number_input("Tyres carrying load",     value=int(vp["num_vehicle_tyres"]),      min_value=1, step=1,        key=f"e_nt_{_vkv}")
+    e_tp   = st.number_input("Tyre pressure (kPa)",     value=float(vp["tyre_pressure_kPa"]),   min_value=50.0, step=10.0,  key=f"e_tp_{_vkv}")
+    e_tt   = st.selectbox("Tyre type", TYRE_TYPES,
+                           index=TYRE_TYPES.index(vp["tyre_type"]),                              key=f"e_tt_{_vkv}")
+
+    # ── Aerodynamics ──
+    st.markdown("**Aerodynamics**")
+    e_cd = st.number_input("Vehicle Cd",             value=float(vp["Cd"]),           min_value=0.0, step=0.01, format="%.2f", key=f"e_cd_{_vkv}")
+    e_fa = st.number_input("Frontal area (m²)",      value=float(vp["frontal_area"]), min_value=0.1, step=0.1,  format="%.2f", key=f"e_fa_{_vkv}")
+
+    # ── Transmission ──
+    st.markdown("**Transmission**")
+    _gr_default = ", ".join(f"{r:.4g}" for r in vp["gear_ratios"])
+    e_gr = st.text_input("Gear ratios (comma-separated)", value=_gr_default, key=f"e_gr_{_vkv}")
+
+    # ── Torque Curve ──
+    st.markdown("**Torque Curve**")
+    _tc_rpm_def = ", ".join(str(int(pt[0])) for pt in vp["torque_curve"])
+    _tc_tq_def  = ", ".join(f"{pt[1]:.4g}" for pt in vp["torque_curve"])
+    e_tc_rpm = st.text_input("RPM points",          value=_tc_rpm_def, key=f"e_tc_rpm_{_vkv}")
+    e_tc_tq  = st.text_input("Torque values (Nm)",  value=_tc_tq_def,  key=f"e_tc_tq_{_vkv}")
+
+    # ── Validation Warnings ──
+    try:
+        _check_rpm = [float(x.strip()) for x in e_tc_rpm.split(",") if x.strip()]
+        _check_tq  = [float(x.strip()) for x in e_tc_tq.split(",")  if x.strip()]
+        if len(_check_rpm) == len(_check_tq) and len(_check_rpm) >= 2:
+            _check_curve = list(zip(_check_rpm, _check_tq))
+            _max_curve_tq = max(t for _, t in _check_curve)
+            if abs(_max_curve_tq - e_ptq) > 10:
+                st.warning(
+                    f"The entered peak torque ({e_ptq:.0f} Nm) does not match "
+                    f"the maximum value in the torque curve ({_max_curve_tq:.0f} Nm)."
+                )
+            _tq_at_pp = interp_torque(_check_curve, e_ppw_rpm)
+            if _tq_at_pp is not None:
+                _calc_pw_kW = _tq_at_pp * e_ppw_rpm * 2 * math.pi / 60.0 / 1000.0
+                if abs(_calc_pw_kW - e_ppw) > max(10.0, e_ppw * 0.10):
+                    st.warning(
+                        f"The entered peak power ({e_ppw:.0f} kW) does not closely match "
+                        f"the torque curve at the stated peak power RPM "
+                        f"({_calc_pw_kW:.1f} kW calculated at {int(e_ppw_rpm)} RPM)."
+                    )
+    except Exception:
+        pass
+
+    # ── Buttons ──
+    _ca, _cb = st.columns(2)
+    _apply = _ca.button("Apply Changes",     key=f"apply_{vk}")
+    _reset = _cb.button("Reset to Defaults", key=f"reset_{vk}")
+
+    if _apply:
+        _errors = []
+        try:
+            _new_gr  = [float(x.strip()) for x in e_gr.split(",")     if x.strip()]
+            _new_rpm = [float(x.strip()) for x in e_tc_rpm.split(",") if x.strip()]
+            _new_tq  = [float(x.strip()) for x in e_tc_tq.split(",")  if x.strip()]
+            if not _new_gr:
+                _errors.append("At least one gear ratio is required.")
+            if len(_new_rpm) != len(_new_tq):
+                _errors.append(
+                    f"RPM points ({len(_new_rpm)}) and torque values ({len(_new_tq)}) "
+                    "must have the same count."
+                )
+            elif len(_new_rpm) < 2:
+                _errors.append("At least 2 torque curve points are required.")
+        except ValueError as _exc:
+            _errors.append(f"Parse error: {_exc}")
+
+        if _errors:
+            for _e in _errors:
+                st.error(_e)
+        else:
+            st.session_state["vehicle_profiles"][selected_vehicle] = {
+                "vehicle_mass":        m_vehicle,
+                "rated_GCM":           GCM,
+                "peak_torque_Nm":      e_ptq,
+                "peak_torque_rpm":     int(e_ptq_rpm),
+                "peak_power_kW":       e_ppw,
+                "peak_power_rpm":      int(e_ppw_rpm),
+                "idle_rpm":            int(e_idle),
+                "redline_rpm":         int(e_redline),
+                "torque_curve":        [(r, t) for r, t in zip(_new_rpm, _new_tq)],
+                "final_drive_ratio":   e_fdr,
+                "driveline_efficiency": e_de,
+                "tyre_size":           e_ts,
+                "tyre_radius":         e_tr,
+                "num_vehicle_tyres":   int(e_nt),
+                "tyre_pressure_kPa":   e_tp,
+                "tyre_type":           e_tt,
+                "Cd":                  e_cd,
+                "frontal_area":        e_fa,
+                "gear_ratios":         _new_gr,
+            }
+            st.session_state[f"ev_ver_{vk}"] = _ver + 1
+            st.success("✅ Profile updated for this session.")
+            st.rerun()
+
+    if _reset:
+        _def = DEFAULT_VEHICLE_PROFILES[selected_vehicle]
+        st.session_state["vehicle_profiles"][selected_vehicle] = {
+            **_def,
+            "torque_curve": [tuple(pt) for pt in _def["torque_curve"]],
+        }
+        st.session_state[f"ev_ver_{vk}"] = _ver + 1
+        st.success("✅ Reset to defaults.")
+        st.rerun()
+
+    # ── Download JSON ──
+    def _profiles_json():
+        out = {}
+        for _n, _p in st.session_state["vehicle_profiles"].items():
+            _pc = dict(_p)
+            _pc["torque_curve"] = [list(pt) for pt in _pc["torque_curve"]]
+            out[_n] = _pc
+        return json.dumps(out, indent=2)
+
+    st.download_button(
+        "📥 Download Profiles JSON",
+        _profiles_json(),
+        file_name="vehicle_profiles.json",
+        mime="application/json",
+        key=f"dl_{vk}",
+    )
 
 st.sidebar.divider()
 
 # ── Trailer Profile ───────────────────────────────────────────────────────────────
 
 st.sidebar.subheader("Fixed Dual-Axle Trailer Profile")
-
 selected_trailer = st.sidebar.selectbox(
-    "Select Trailer Profile", list(trailer_profiles.keys())
+    "Select Trailer Profile", list(DEFAULT_TRAILER_PROFILES.keys())
 )
-tp = trailer_profiles[selected_trailer]
+tp = DEFAULT_TRAILER_PROFILES[selected_trailer]
 tk = selected_trailer
 
 m_trailer = st.sidebar.number_input(
@@ -565,14 +580,13 @@ frontal_height = st.sidebar.number_input(
     "Trailer frontal height (m)", value=float(tp["frontal_height"]),
     min_value=0.1, step=0.05, format="%.2f", key=f"fh_{tk}",
 )
-
 A_trailer_calc = frontal_width * frontal_height
 override_area = st.sidebar.checkbox(
     "Override trailer frontal area", value=False, key=f"oa_{tk}"
 )
 if override_area:
     A_trailer = st.sidebar.number_input(
-        "Trailer frontal area override (m2)", value=round(A_trailer_calc, 2),
+        "Trailer frontal area override (m²)", value=round(A_trailer_calc, 2),
         min_value=0.1, step=0.05, format="%.2f", key=f"aft_ov_{tk}",
     )
 else:
@@ -585,9 +599,8 @@ st.sidebar.divider()
 
 st.sidebar.subheader("Environmental")
 air_density = st.sidebar.number_input(
-    "Air density (kg/m3)", value=1.225, min_value=0.1, step=0.001, format="%.3f"
+    "Air density (kg/m³)", value=1.225, min_value=0.1, step=0.001, format="%.3f"
 )
-
 st.sidebar.divider()
 
 st.sidebar.subheader("Phase 1 — Operating Condition")
@@ -595,83 +608,75 @@ speed_kmh = st.sidebar.number_input(
     "Vehicle speed (km/h)", value=100.0, min_value=0.0, step=5.0
 )
 
+# ─── READ PROFILE VALUES ─────────────────────────────────────────────────────────
+# Re-read vp after any edits (session state may have changed via Apply button).
+vp = st.session_state["vehicle_profiles"][selected_vehicle]
+
+final_drive_ratio    = vp["final_drive_ratio"]
+driveline_efficiency = vp["driveline_efficiency"]
+tyre_radius          = vp["tyre_radius"]
+num_vehicle_tyres    = vp["num_vehicle_tyres"]
+vehicle_tyre_pressure = vp["tyre_pressure_kPa"]
+vehicle_tyre_type    = vp["tyre_type"]
+Cd_vehicle           = vp["Cd"]
+A_vehicle            = vp["frontal_area"]
+peak_power_kW        = vp["peak_power_kW"]
+
 # ─── PHASE 1 CALCULATIONS ────────────────────────────────────────────────────────
 
-V = speed_kmh / 3.6  # m/s
+V = speed_kmh / 3.6   # m/s
 
-# Mass
-m_total        = m_vehicle + m_trailer
-GCM_utilisation = (m_total / GCM) * 100
+m_total         = m_vehicle + m_trailer
+GCM_utilisation = (m_total / GCM) * 100.0
 
-# Rolling resistance (Phase 1 pressure-corrected Crr)
 Crr_vehicle = estimate_crr(vehicle_tyre_type, vehicle_tyre_pressure)
 Crr_trailer = estimate_crr(trailer_tyre_type, trailer_tyre_pressure)
 
-# Tyre loads
-avg_vehicle_load_per_tyre_N  = (m_vehicle * g) / num_vehicle_tyres
-trailer_tyre_supported_mass  = max(0.0, m_trailer - tow_ball_mass)
-avg_trailer_load_per_tyre_N  = (trailer_tyre_supported_mass * g) / num_trailer_tyres
+avg_vehicle_load_per_tyre_N = (m_vehicle * g) / num_vehicle_tyres
+trailer_tyre_supported_mass = max(0.0, m_trailer - tow_ball_mass)
+avg_trailer_load_per_tyre_N = (trailer_tyre_supported_mass * g) / max(num_trailer_tyres, 1)
 
-# Rolling resistance forces
 F_rr_vehicle = Crr_vehicle * m_vehicle * g
 F_rr_trailer = Crr_trailer * m_trailer * g
 
-# Aerodynamic drag
 F_aero_vehicle = 0.5 * air_density * Cd_vehicle * A_vehicle * V ** 2
 F_aero_trailer = 0.5 * air_density * Cd_trailer * A_trailer * V ** 2
 
-# Total resistance
 F_resistance_total = F_rr_vehicle + F_rr_trailer + F_aero_vehicle + F_aero_trailer
 
-# ── Automatic Gear Selection (RPM + Torque Curve) ────────────────────────────────
-# Evaluate every gear at the operating speed and choose the one with
-# the highest available tractive force.
-
-P_watts_p1 = peak_power_kW * 1000.0
-
+# Automatic gear selection
 gear_rows_p1, best_idx_p1 = select_best_gear(
-    gear_ratios        = vp["gear_ratios"],
-    final_drive_ratio  = final_drive_ratio,
+    gear_ratios          = vp["gear_ratios"],
+    final_drive_ratio    = final_drive_ratio,
     driveline_efficiency = driveline_efficiency,
-    tyre_radius_m      = tyre_radius,
-    idle_rpm           = vp["idle_rpm"],
-    redline_rpm        = vp["redline_rpm"],
-    torque_curve       = vp.get("torque_curve"),
-    peak_power_W       = P_watts_p1,
-    V_mps              = V,
-    fallback_torque_Nm = vp["peak_torque_Nm"],
+    tyre_radius_m        = tyre_radius,
+    idle_rpm             = vp["idle_rpm"],
+    redline_rpm          = vp["redline_rpm"],
+    torque_curve         = vp.get("torque_curve"),
+    peak_power_W         = peak_power_kW * 1000.0,
+    V_mps                = V,
+    fallback_torque_Nm   = vp["peak_torque_Nm"],
 )
 
 if best_idx_p1 is not None:
-    best_p1 = gear_rows_p1[best_idx_p1]
-    p1_gear_num    = best_p1["Gear"]
-    p1_gear_ratio  = best_p1["Gear Ratio"]
-    p1_engine_rpm  = best_p1["Effective RPM"]
-    p1_torque_Nm   = best_p1["Torque at RPM (Nm)"]
-    p1_power_W     = best_p1["Capped Power (W)"]
-    p1_F_torque    = best_p1["F_torque (N)"]
-    p1_F_power     = best_p1["F_power (N)"]
-    F_available    = best_p1["F_available (N)"]
-    # Wheel torque at selected gear
-    T_wheel        = (p1_torque_Nm * p1_gear_ratio
-                      * final_drive_ratio * driveline_efficiency)
+    _bp1       = gear_rows_p1[best_idx_p1]
+    p1_gear    = _bp1["Gear"]
+    p1_ratio   = _bp1["Gear Ratio"]
+    p1_rpm     = _bp1["Effective RPM"]
+    p1_torque  = _bp1["Torque (Nm)"]
+    p1_power_W = _bp1["Cap Power (W)"]
+    p1_F_tq    = _bp1["F_torque (N)"]
+    p1_F_pw    = _bp1["F_power (N)"]
+    F_available = _bp1["F_available (N)"]
+    T_wheel    = (p1_torque * p1_ratio * final_drive_ratio * driveline_efficiency
+                  if p1_torque else 0.0)
 else:
-    # No valid gear (e.g. all gears above redline at this speed)
-    p1_gear_num   = None
-    p1_gear_ratio = None
-    p1_engine_rpm = None
-    p1_torque_Nm  = None
-    p1_power_W    = None
-    p1_F_torque   = None
-    p1_F_power    = None
-    F_available   = 0.0
-    T_wheel       = 0.0
+    p1_gear = p1_ratio = p1_rpm = p1_torque = p1_power_W = p1_F_tq = p1_F_pw = None
+    F_available = 0.0
+    T_wheel = 0.0
 
-# Net tractive force and acceleration
-F_net = F_available - F_resistance_total
-a     = F_net / m_total if m_total > 0 else 0.0
-
-# Hitch force
+F_net   = F_available - F_resistance_total
+a       = F_net / m_total if m_total > 0 else 0.0
 F_hitch = m_trailer * a + F_rr_trailer + F_aero_trailer
 
 # ─── PHASE 2A — TYRE GEOMETRY & ADJUSTED CRR ─────────────────────────────────────
@@ -679,26 +684,20 @@ F_hitch = m_trailer * a + F_rr_trailer + F_aero_trailer
 veh_tyre_geom = parse_tyre_size(vp["tyre_size"])
 trl_tyre_geom = parse_tyre_size(tp["tyre_size"])
 
-veh_unloaded_radius = (veh_tyre_geom["unloaded_radius_m"]
-                       if veh_tyre_geom else tyre_radius)
-trl_unloaded_radius = (trl_tyre_geom["unloaded_radius_m"]
-                       if trl_tyre_geom else trailer_tyre_radius)
+veh_unloaded_r = veh_tyre_geom["unloaded_radius_m"] if veh_tyre_geom else tyre_radius
+trl_unloaded_r = trl_tyre_geom["unloaded_radius_m"] if trl_tyre_geom else trailer_tyre_radius
 
-veh_tyre_deflection = max(0.0, veh_unloaded_radius - tyre_radius)
-trl_tyre_deflection = max(0.0, trl_unloaded_radius - trailer_tyre_radius)
+veh_deflection = max(0.0, veh_unloaded_r - tyre_radius)
+trl_deflection = max(0.0, trl_unloaded_r - trailer_tyre_radius)
 
-veh_section_width = (veh_tyre_geom["section_width_m"] if veh_tyre_geom else 0.265)
-trl_section_width = (trl_tyre_geom["section_width_m"] if trl_tyre_geom else 0.235)
+veh_sw = veh_tyre_geom["section_width_m"] if veh_tyre_geom else 0.265
+trl_sw = trl_tyre_geom["section_width_m"] if trl_tyre_geom else 0.235
 
-veh_cp_area, veh_cp_length = calc_contact_patch(
-    avg_vehicle_load_per_tyre_N, vehicle_tyre_pressure, veh_section_width
-)
-trl_cp_area, trl_cp_length = calc_contact_patch(
-    avg_trailer_load_per_tyre_N, trailer_tyre_pressure, trl_section_width
-)
+veh_cp_area, veh_cp_len = calc_contact_patch(avg_vehicle_load_per_tyre_N, vehicle_tyre_pressure, veh_sw)
+trl_cp_area, trl_cp_len = calc_contact_patch(avg_trailer_load_per_tyre_N, trailer_tyre_pressure, trl_sw)
 
-Crr_veh_p2 = calc_crr_p2(vehicle_tyre_type, tyre_radius, veh_unloaded_radius)
-Crr_trl_p2 = calc_crr_p2(trailer_tyre_type, trailer_tyre_radius, trl_unloaded_radius)
+Crr_veh_p2 = calc_crr_p2(vehicle_tyre_type, tyre_radius, veh_unloaded_r)
+Crr_trl_p2 = calc_crr_p2(trailer_tyre_type, trailer_tyre_radius, trl_unloaded_r)
 
 # ─── MAIN AREA ───────────────────────────────────────────────────────────────────
 
@@ -706,150 +705,156 @@ st.title("GCM Level Road Calculator")
 st.markdown(
     """
     **Phase 1 — Level Road Steady-State Calculator.**
-    Estimates towing performance for a vehicle and trailer on a flat, level road
-    at a single selected speed. Gear is selected automatically from the vehicle
-    profile using engine RPM and the torque curve. All inputs and outputs use SI units.
+    Estimates towing performance for a vehicle and trailer on a flat, level road at a
+    single selected speed. Gear is selected automatically from the vehicle profile using
+    engine RPM and the torque curve. All inputs and outputs use SI units.
     """
 )
 
-# Warnings
-gcm_exceeded = m_total > GCM
+gcm_exceeded  = m_total > GCM
 net_negative  = F_net < 0
 no_valid_gear = best_idx_p1 is None
 
 if gcm_exceeded:
     st.error(
-        f"WARNING: Total combination mass {m_total:,.0f} kg exceeds "
-        f"rated GCM of {GCM:,.0f} kg by {m_total - GCM:,.0f} kg."
+        f"GCM EXCEEDED: Combination mass {m_total:,.0f} kg > "
+        f"rated GCM {GCM:,.0f} kg  (over by {m_total - GCM:,.0f} kg)."
     )
 if no_valid_gear:
     st.error(
-        "WARNING: No valid gear found at this speed — all gears exceed the "
-        f"redline ({vp['redline_rpm']:,} RPM). Vehicle cannot operate at "
-        f"{speed_kmh:.0f} km/h with this profile."
+        f"NO VALID GEAR at {speed_kmh:.0f} km/h — all gears exceed the "
+        f"redline ({vp['redline_rpm']:,} RPM) or fall below idle."
     )
 elif net_negative:
     st.warning(
-        f"WARNING: Net force is {F_net:,.0f} N. "
-        "The vehicle cannot maintain speed or accelerate at the selected condition."
+        f"Net force is {F_net:,.0f} N. "
+        "The vehicle cannot maintain speed or accelerate at this condition."
     )
 
 # ─── PROFILE SUMMARY ─────────────────────────────────────────────────────────────
 
 with st.expander("Profile Summary", expanded=False):
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.markdown("**Vehicle**")
         st.write(f"Profile: {selected_vehicle}")
-        st.write(f"Tyre size: {vp['tyre_size']}")
-        st.write(f"Vehicle mass: {m_vehicle:,.0f} kg")
-        st.write(f"Rated GCM: {GCM:,.0f} kg")
-        st.write(f"Peak power: {peak_power_kW:.0f} kW")
+        st.write(f"Vehicle mass: {m_vehicle:,.0f} kg  |  Rated GCM: {GCM:,.0f} kg")
+        st.write(f"Peak torque: {vp['peak_torque_Nm']:.0f} Nm @ {vp['peak_torque_rpm']:,} RPM")
+        st.write(f"Peak power:  {vp['peak_power_kW']:.0f} kW @ {vp['peak_power_rpm']:,} RPM")
         st.write(f"Idle RPM: {vp['idle_rpm']:,}  |  Redline RPM: {vp['redline_rpm']:,}")
+        st.write(f"Final drive: {final_drive_ratio:.3f}  |  Driveline eff: {driveline_efficiency:.2f}")
+        st.write(f"Tyre: {vp['tyre_size']}  ({vehicle_tyre_type}, {vehicle_tyre_pressure:.0f} kPa)")
+        st.write(f"Unloaded r: {veh_unloaded_r:.3f} m  |  Loaded r: {tyre_radius:.3f} m  |  Deflection: {veh_deflection*1000:.1f} mm")
+        st.write(f"Avg load/tyre: {avg_vehicle_load_per_tyre_N:,.0f} N")
+        st.write(f"Contact patch: {veh_cp_area*10000:.1f} cm²  ×  {veh_cp_len*100:.1f} cm")
         st.write(f"Vehicle Cd: {Cd_vehicle:.2f}  |  Frontal area: {A_vehicle:.2f} m²")
-        st.write(f"Tyre type: {vehicle_tyre_type}  |  Pressure: {vehicle_tyre_pressure:.0f} kPa")
-        st.write(f"Unloaded radius: {veh_unloaded_radius:.3f} m  |  Loaded: {tyre_radius:.3f} m  |  Deflection: {veh_tyre_deflection*1000:.1f} mm")
-        st.write(f"Avg load/tyre: {avg_vehicle_load_per_tyre_N:,.0f} N  ({avg_vehicle_load_per_tyre_N/1000:.2f} kN)")
-        st.write(f"Contact patch: {veh_cp_area*10000:.1f} cm²  ×  {veh_cp_length*100:.1f} cm")
         st.write(f"Phase 1 Crr: {Crr_vehicle:.5f}  |  Phase 2A Crr: {Crr_veh_p2:.5f}")
         st.write(f"Gear ratios: {vp['gear_ratios']}")
-        st.write(f"Final drive: {final_drive_ratio:.3f}")
-    with col2:
+    with c2:
         st.markdown("**Trailer**")
         st.write(f"Profile: {selected_trailer}")
-        st.write(f"Tyre size: {tp['tyre_size']}")
         st.write(f"Trailer mass: {m_trailer:,.0f} kg  |  Tow ball: {tow_ball_mass:,.0f} kg")
-        st.write(f"Tyre supported mass: {trailer_tyre_supported_mass:,.0f} kg")
+        st.write(f"Tyre-supported mass: {trailer_tyre_supported_mass:,.0f} kg")
+        st.write(f"Tyre: {tp['tyre_size']}  ({trailer_tyre_type}, {trailer_tyre_pressure:.0f} kPa)")
+        st.write(f"Unloaded r: {trl_unloaded_r:.3f} m  |  Loaded r: {trailer_tyre_radius:.3f} m  |  Deflection: {trl_deflection*1000:.1f} mm")
+        st.write(f"Avg load/tyre: {avg_trailer_load_per_tyre_N:,.0f} N")
+        st.write(f"Contact patch: {trl_cp_area*10000:.1f} cm²  ×  {trl_cp_len*100:.1f} cm")
         st.write(f"Trailer Cd: {Cd_trailer:.2f}  |  Frontal area: {A_trailer:.2f} m²  ({frontal_width:.2f} × {frontal_height:.2f} m)")
-        st.write(f"Tyre type: {trailer_tyre_type}  |  Pressure: {trailer_tyre_pressure:.0f} kPa")
-        st.write(f"Unloaded radius: {trl_unloaded_radius:.3f} m  |  Loaded: {trailer_tyre_radius:.3f} m  |  Deflection: {trl_tyre_deflection*1000:.1f} mm")
-        st.write(f"Avg load/tyre: {avg_trailer_load_per_tyre_N:,.0f} N  ({avg_trailer_load_per_tyre_N/1000:.2f} kN)")
-        st.write(f"Contact patch: {trl_cp_area*10000:.1f} cm²  ×  {trl_cp_length*100:.1f} cm")
         st.write(f"Phase 1 Crr: {Crr_trailer:.5f}  |  Phase 2A Crr: {Crr_trl_p2:.5f}")
     st.markdown("---")
     st.markdown("**Combination**")
-    c1, c2, c3 = st.columns(3)
-    c1.write(f"Total combination mass: {m_total:,.0f} kg")
-    c2.write(f"Rated GCM: {GCM:,.0f} kg")
-    c3.write(f"GCM utilisation: {GCM_utilisation:.1f}%")
+    _cc1, _cc2, _cc3 = st.columns(3)
+    _cc1.write(f"Total mass: {m_total:,.0f} kg")
+    _cc2.write(f"Rated GCM: {GCM:,.0f} kg")
+    _cc3.write(f"GCM utilisation: {GCM_utilisation:.1f}%")
     st.caption(
         "Rolling resistance is estimated from tyre type, tyre loading, pressure and "
-        "loaded-radius correction. Contact patch values are engineering estimates and "
-        "are not direct rolling resistance measurements."
+        "loaded-radius correction. Contact patch values are engineering approximations."
     )
 
 # ─── MASS CALCULATIONS ───────────────────────────────────────────────────────────
 
 st.subheader("Mass Calculations")
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Combination Mass", f"{m_total:,.0f} kg")
-col2.metric(
+_mc1, _mc2, _mc3 = st.columns(3)
+_mc1.metric("Total Combination Mass", f"{m_total:,.0f} kg")
+_mc2.metric(
     "GCM Utilisation", f"{GCM_utilisation:.1f}%",
     delta=f"{GCM_utilisation - 100:.1f}% over limit" if gcm_exceeded else None,
     delta_color="inverse",
 )
-col3.metric("Rated GCM", f"{GCM:,.0f} kg")
+_mc3.metric("Rated GCM", f"{GCM:,.0f} kg")
 
 # ─── DRIVELINE / TRACTIVE FORCE ──────────────────────────────────────────────────
 
 st.subheader("Driveline / Tractive Force")
 
-def _fmt(v, fmt=","):
-    return f"{v:{fmt}}" if v is not None else "N/A"
+_dc1, _dc2, _dc3 = st.columns(3)
+_dc1.metric(
+    "Auto-Selected Gear",
+    f"Gear {p1_gear}  (ratio {p1_ratio:.3f})" if p1_gear else "N/A",
+)
+_dc2.metric("Engine RPM", f"{int(p1_rpm):,}" if p1_rpm is not None else "N/A")
+_dc3.metric("Torque at RPM", f"{p1_torque:,.0f} Nm" if p1_torque is not None else "N/A")
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Auto-Selected Gear",
-            f"Gear {p1_gear_num}  (ratio {p1_gear_ratio:.3f})" if p1_gear_num else "N/A")
-col2.metric("Engine RPM", f"{int(p1_engine_rpm):,}" if p1_engine_rpm is not None else "N/A")
-col3.metric("Torque at RPM", f"{p1_torque_Nm:,.0f} Nm" if p1_torque_Nm is not None else "N/A")
-
-col4, col5, col6 = st.columns(3)
-col4.metric("Engine Power (capped)", f"{p1_power_W/1000:.1f} kW" if p1_power_W is not None else "N/A")
-col5.metric("Torque-Limited Force", f"{p1_F_torque:,.0f} N" if p1_F_torque is not None else "N/A")
-col6.metric("Available Tractive Force", f"{F_available:,.0f} N")
+_dc4, _dc5, _dc6 = st.columns(3)
+_dc4.metric(
+    "Engine Power (capped)",
+    f"{p1_power_W / 1000:.1f} kW" if p1_power_W is not None else "N/A",
+)
+_dc5.metric("Torque-Limited Force", f"{p1_F_tq:,.0f} N" if p1_F_tq is not None else "N/A")
+_dc6.metric("Available Tractive Force", f"{F_available:,.0f} N")
 
 # ─── GEAR SELECTION CHECK ────────────────────────────────────────────────────────
 
 with st.expander("Gear Selection Check", expanded=False):
     st.caption(
-        f"All gears evaluated at {speed_kmh:.0f} km/h ({V:.2f} m/s). "
-        f"Idle: {vp['idle_rpm']:,} RPM  |  Redline: {vp['redline_rpm']:,} RPM. "
-        "Effective RPM = max(calculated RPM, idle RPM). "
-        "Gears above redline are marked invalid."
+        f"All gears evaluated at {speed_kmh:.0f} km/h ({V:.2f} m/s).  "
+        f"Idle: {vp['idle_rpm']:,} RPM  |  Redline: {vp['redline_rpm']:,} RPM.  "
+        "At road speeds < 1 m/s (launch), effective RPM is floored at idle so the "
+        "simulation can start from rest. At normal road speed, a gear whose calculated "
+        "RPM falls below idle is marked invalid — the engine cannot sustain that speed."
     )
-    # Build display DataFrame — replace None with "—" for readability
-    display_rows = []
-    for row in gear_rows_p1:
-        display_rows.append({
-            "Gear":               row["Gear"],
-            "Ratio":              row["Gear Ratio"],
-            "Calc RPM":           int(row["Calc RPM"]),
-            "Eff. RPM":           int(row["Effective RPM"]),
-            "Torque (Nm)":        f"{row['Torque at RPM (Nm)']:.0f}" if row["Torque at RPM (Nm)"] is not None else "—",
-            "Power (kW)":         f"{row['Capped Power (W)']/1000:.1f}" if row["Capped Power (W)"] is not None else "—",
-            "F_torque (N)":       f"{row['F_torque (N)']:.0f}" if row["F_torque (N)"] is not None else "—",
-            "F_power (N)":        f"{row['F_power (N)']:.0f}" if row["F_power (N)"] is not None else "—",
-            "F_available (N)":    f"{row['F_available (N)']:.0f}" if row["F_available (N)"] is not None else "—",
-            "Valid":              "✅" if row["Valid"] else "❌ Over redline",
-            "Selected":           "★ Selected" if row["Selected"] else "",
+    st.info(
+        "**Gear selection note:** The current model selects the valid gear that produces "
+        "the highest available tractive force at each speed step. This is an idealised "
+        "shift strategy and does not yet include shift delay, torque converter slip, "
+        "traction control, or manufacturer shift scheduling.  \n"
+        "Torque is interpolated from the vehicle profile torque curve at the calculated "
+        "engine RPM. Engine power is calculated from torque and RPM, then capped by the "
+        "profile peak power value. Peak torque RPM and peak power RPM are stored for "
+        "profile reference and validation."
+    )
+    _disp = []
+    for _r in gear_rows_p1:
+        _disp.append({
+            "Gear":           _r["Gear"],
+            "Ratio":          _r["Gear Ratio"],
+            "Calc RPM":       int(_r["Calc RPM"]),
+            "Eff. RPM":       int(_r["Effective RPM"]),
+            "Torque (Nm)":    f"{_r['Torque (Nm)']:.0f}"      if _r["Torque (Nm)"]    is not None else "—",
+            "Eng kW":         f"{_r['Eng Power (W)']/1000:.1f}" if _r["Eng Power (W)"] is not None else "—",
+            "Cap kW":         f"{_r['Cap Power (W)']/1000:.1f}" if _r["Cap Power (W)"] is not None else "—",
+            "F_torque (N)":   f"{_r['F_torque (N)']:.0f}"     if _r["F_torque (N)"]   is not None else "—",
+            "F_power (N)":    f"{_r['F_power (N)']:.0f}"      if _r["F_power (N)"]    is not None else "—",
+            "F_avail (N)":    f"{_r['F_available (N)']:.0f}"  if _r["F_available (N)"] is not None else "—",
+            "Valid":          "✅" if _r["Valid"] else "❌ Over redline" if _r["Effective RPM"] > vp["redline_rpm"] else "❌ Below idle",
+            "Selected":       "★" if _r["Selected"] else "",
         })
-    df_gears = pd.DataFrame(display_rows)
-    st.dataframe(df_gears, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(_disp), use_container_width=True, hide_index=True)
 
 # ─── PERFORMANCE ─────────────────────────────────────────────────────────────────
 
 st.subheader("Performance")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Net Force", f"{F_net:,.0f} N")
-col2.metric("Acceleration", f"{a:.4f} m/s²")
-col3.metric("Hitch Force (N)", f"{F_hitch:,.0f} N")
-col4.metric("Hitch Force (kN)", f"{F_hitch / 1000:.3f} kN")
+_pc1, _pc2, _pc3, _pc4 = st.columns(4)
+_pc1.metric("Net Force",         f"{F_net:,.0f} N")
+_pc2.metric("Acceleration",      f"{a:.4f} m/s²")
+_pc3.metric("Hitch Force",       f"{F_hitch:,.0f} N")
+_pc4.metric("Hitch Force",       f"{F_hitch / 1000:.3f} kN")
 
 # ─── FORCE SUMMARY TABLE ─────────────────────────────────────────────────────────
 
 st.subheader("Force Summary Table")
-
-summary_data = {
+_fs_data = {
     "Force Component": [
         "Vehicle Rolling Resistance",
         "Trailer Rolling Resistance",
@@ -861,54 +866,40 @@ summary_data = {
         "Hitch Force",
     ],
     "Value (N)": [
-        round(F_rr_vehicle, 1),
-        round(F_rr_trailer, 1),
-        round(F_aero_vehicle, 1),
-        round(F_aero_trailer, 1),
-        round(F_resistance_total, 1),
-        round(F_available, 1),
-        round(F_net, 1),
-        round(F_hitch, 1),
+        round(F_rr_vehicle, 1), round(F_rr_trailer, 1),
+        round(F_aero_vehicle, 1), round(F_aero_trailer, 1),
+        round(F_resistance_total, 1), round(F_available, 1),
+        round(F_net, 1), round(F_hitch, 1),
     ],
     "Value (kN)": [
-        round(F_rr_vehicle / 1000, 3),
-        round(F_rr_trailer / 1000, 3),
-        round(F_aero_vehicle / 1000, 3),
-        round(F_aero_trailer / 1000, 3),
-        round(F_resistance_total / 1000, 3),
-        round(F_available / 1000, 3),
-        round(F_net / 1000, 3),
-        round(F_hitch / 1000, 3),
+        round(F_rr_vehicle / 1000, 3), round(F_rr_trailer / 1000, 3),
+        round(F_aero_vehicle / 1000, 3), round(F_aero_trailer / 1000, 3),
+        round(F_resistance_total / 1000, 3), round(F_available / 1000, 3),
+        round(F_net / 1000, 3), round(F_hitch / 1000, 3),
     ],
 }
-df_summary = pd.DataFrame(summary_data)
-st.dataframe(df_summary, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(_fs_data), use_container_width=True, hide_index=True)
 
 # ─── RESISTANCE FORCE BAR CHART ──────────────────────────────────────────────────
 
 st.subheader("Resistance Force Breakdown")
-
-categories = [
-    "Vehicle\nRolling Resistance",
-    "Trailer\nRolling Resistance",
-    "Vehicle\nAero Drag",
-    "Trailer\nAero Drag",
-]
-values = [F_rr_vehicle, F_rr_trailer, F_aero_vehicle, F_aero_trailer]
-colors = ["#1976D2", "#64B5F6", "#E64A19", "#FF8A65"]
+_cats   = ["Vehicle\nRolling Resistance", "Trailer\nRolling Resistance",
+           "Vehicle\nAero Drag", "Trailer\nAero Drag"]
+_vals   = [F_rr_vehicle, F_rr_trailer, F_aero_vehicle, F_aero_trailer]
+_colors = ["#1976D2", "#64B5F6", "#E64A19", "#FF8A65"]
 
 fig, ax = plt.subplots(figsize=(9, 4))
-bars = ax.bar(categories, values, color=colors, edgecolor="white", linewidth=0.8)
-for bar, val in zip(bars, values):
+bars = ax.bar(_cats, _vals, color=_colors, edgecolor="white", linewidth=0.8)
+for bar, val in zip(bars, _vals):
     ax.text(
         bar.get_x() + bar.get_width() / 2,
-        bar.get_height() + max(values) * 0.01,
+        bar.get_height() + max(_vals) * 0.01,
         f"{val:,.0f} N",
         ha="center", va="bottom", fontsize=9, fontweight="bold",
     )
 ax.set_ylabel("Force (N)", fontsize=11)
 ax.set_title("Resistance Forces at Selected Speed", fontsize=12, fontweight="bold")
-ax.set_ylim(0, max(values) * 1.2 if max(values) > 0 else 100)
+ax.set_ylim(0, max(_vals) * 1.2 if max(_vals) > 0 else 100)
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 plt.tight_layout()
@@ -923,59 +914,49 @@ st.divider()
 st.header("Phase 2A — Predicted Level Road Acceleration")
 st.markdown(
     """
-    Simulates level-road acceleration using a stepped-speed Euler integration.
-    At each speed step the gear giving the highest available tractive force is
-    selected automatically using the engine RPM and torque curve.
-    Results are compared against standard level-road acceleration test targets.
+    Simulates level-road acceleration via stepped-speed Euler integration.
+    At each speed step the gear giving the highest available tractive force is selected
+    automatically using the engine RPM and torque curve from the vehicle profile.
 
-    **Assumptions:** flat level road · no wind · no gradient · no torque-curve
-    smoothing between steps. Aero drag basic (no yaw, no wind).
+    **Assumptions:** flat level road · no wind · no gradient · torque curve evaluated
+    independently at each speed step. Aero drag basic (no yaw, no wind).
     """
 )
 
 # ── Simulation Inputs ─────────────────────────────────────────────────────────
+_sa, _sb, _sc = st.columns(3)
+sim_start_kmh  = _sa.number_input("Start speed (km/h)", value=0.0, min_value=0.0, step=1.0, key="sim_start")
+sim_target_kmh = _sb.number_input("Target speed (km/h)", value=96.6, min_value=1.0, step=1.0, key="sim_target")
+sim_step_kmh   = _sc.number_input("Speed step (km/h)", value=0.5, min_value=0.01, max_value=5.0, step=0.1,
+                                   format="%.2f", key="sim_step")
 
-col_a, col_b, col_c = st.columns(3)
-sim_start_kmh  = col_a.number_input("Start speed (km/h)", value=0.0, min_value=0.0, step=1.0, key="sim_start")
-sim_target_kmh = col_b.number_input("Target speed (km/h)", value=96.6, min_value=1.0, step=1.0, key="sim_target")
-sim_step_kmh   = col_c.number_input("Speed step (km/h)", value=0.5, min_value=0.01, max_value=5.0, step=0.1,
-                                     format="%.2f", key="sim_step")
-
-# ── Phase 2A Rolling Resistance ───────────────────────────────────────────────
-# Uses loaded-radius-corrected Crr. Trailer RR uses tyre-supported mass only.
+# Phase 2A rolling resistance (loaded-radius corrected, trailer tyre-supported mass only)
 F_rr_veh_p2 = Crr_veh_p2 * m_vehicle * g
 F_rr_trl_p2 = Crr_trl_p2 * trailer_tyre_supported_mass * g
 
-P_watts_p2a = peak_power_kW * 1000.0
+P_watts_p2 = peak_power_kW * 1000.0
 
-# ── Build Speed Array ─────────────────────────────────────────────────────────
+# Build speed array
 n_steps = math.ceil((sim_target_kmh - sim_start_kmh) / sim_step_kmh)
-sim_speeds_kmh = [sim_start_kmh + i * sim_step_kmh for i in range(n_steps + 1)]
-sim_speeds_kmh = [s for s in sim_speeds_kmh if s <= sim_target_kmh + 1e-9]
-if not sim_speeds_kmh or abs(sim_speeds_kmh[-1] - sim_target_kmh) > 1e-6:
-    sim_speeds_kmh.append(sim_target_kmh)
+sim_speeds = [sim_start_kmh + i * sim_step_kmh for i in range(n_steps + 1)]
+sim_speeds = [s for s in sim_speeds if s <= sim_target_kmh + 1e-9]
+if not sim_speeds or abs(sim_speeds[-1] - sim_target_kmh) > 1e-6:
+    sim_speeds.append(sim_target_kmh)
 
-# ── Acceleration Simulation Loop ──────────────────────────────────────────────
+# Acceleration simulation loop
 sim_rows      = []
 sim_speed_out = []
 sim_time_out  = []
 sim_stopped   = False
-cumulative_time = 0.0
+cumtime       = 0.0
 
-for idx, v_kmh in enumerate(sim_speeds_kmh):
+for idx, v_kmh in enumerate(sim_speeds):
     V_mps = v_kmh / 3.6
 
-    # Aerodynamic drag at this speed
     F_aero_veh = 0.5 * air_density * Cd_vehicle * A_vehicle * V_mps ** 2
     F_aero_trl = 0.5 * air_density * Cd_trailer * A_trailer * V_mps ** 2
+    F_res      = F_rr_veh_p2 + F_rr_trl_p2 + F_aero_veh + F_aero_trl
 
-    # Rolling resistance (speed-independent for this model)
-    F_rr_veh = F_rr_veh_p2
-    F_rr_trl = F_rr_trl_p2
-
-    F_res = F_rr_veh + F_rr_trl + F_aero_veh + F_aero_trl
-
-    # Select best gear using RPM and torque curve
     g_rows, b_idx = select_best_gear(
         gear_ratios          = vp["gear_ratios"],
         final_drive_ratio    = final_drive_ratio,
@@ -984,15 +965,15 @@ for idx, v_kmh in enumerate(sim_speeds_kmh):
         idle_rpm             = vp["idle_rpm"],
         redline_rpm          = vp["redline_rpm"],
         torque_curve         = vp.get("torque_curve"),
-        peak_power_W         = P_watts_p2a,
+        peak_power_W         = P_watts_p2,
         V_mps                = V_mps,
         fallback_torque_Nm   = vp["peak_torque_Nm"],
     )
 
     if b_idx is not None:
-        best_sim = g_rows[b_idx]
-        best_F_avail = best_sim["F_available (N)"]
-        best_gear_n  = best_sim["Gear"]
+        _bs = g_rows[b_idx]
+        best_F_avail = _bs["F_available (N)"]
+        best_gear_n  = _bs["Gear"]
     else:
         best_F_avail = 0.0
         best_gear_n  = None
@@ -1001,43 +982,40 @@ for idx, v_kmh in enumerate(sim_speeds_kmh):
     a_sim     = F_net_sim / m_total if m_total > 0 else 0.0
 
     sim_speed_out.append(v_kmh)
-    sim_time_out.append(cumulative_time)
+    sim_time_out.append(cumtime)
     sim_rows.append({
-        "Speed (km/h)":         round(v_kmh, 2),
-        "Gear":                 best_gear_n if best_gear_n else "—",
-        "F_available (N)":      round(best_F_avail, 1),
-        "F_rr Vehicle (N)":     round(F_rr_veh, 1),
-        "F_rr Trailer (N)":     round(F_rr_trl, 1),
-        "F_aero Vehicle (N)":   round(F_aero_veh, 1),
-        "F_aero Trailer (N)":   round(F_aero_trl, 1),
-        "F_resistance (N)":     round(F_res, 1),
-        "F_net (N)":            round(F_net_sim, 1),
-        "Acceleration (m/s²)":  round(a_sim, 4),
-        "Cumulative Time (s)":  round(cumulative_time, 3),
+        "Speed (km/h)":        round(v_kmh, 2),
+        "Gear":                best_gear_n,
+        "F_available (N)":     round(best_F_avail, 1),
+        "F_rr Vehicle (N)":    round(F_rr_veh_p2, 1),
+        "F_rr Trailer (N)":    round(F_rr_trl_p2, 1),
+        "F_aero Vehicle (N)":  round(F_aero_veh, 1),
+        "F_aero Trailer (N)":  round(F_aero_trl, 1),
+        "F_resistance (N)":    round(F_res, 1),
+        "F_net (N)":           round(F_net_sim, 1),
+        "Acceleration (m/s²)": round(a_sim, 4),
+        "Cumulative Time (s)": round(cumtime, 3),
     })
 
     if a_sim <= 0:
         sim_stopped = True
         break
 
-    if idx < len(sim_speeds_kmh) - 1:
-        next_v  = sim_speeds_kmh[idx + 1]
-        dV_mps  = (next_v - v_kmh) / 3.6
-        cumulative_time += dV_mps / a_sim
+    if idx < len(sim_speeds) - 1:
+        dV = (sim_speeds[idx + 1] - v_kmh) / 3.6
+        cumtime += dV / a_sim
 
-# ── Milestone Interpolation ───────────────────────────────────────────────────
+# Milestone interpolation
 T_48    = interp_time_at_speed(sim_speed_out, sim_time_out, 48.3)
 T_64    = interp_time_at_speed(sim_speed_out, sim_time_out, 64.4)
 T_96    = interp_time_at_speed(sim_speed_out, sim_time_out, 96.6)
 T_64_96 = (T_96 - T_64) if (T_64 is not None and T_96 is not None) else None
 
-def fmt_time(t):
+def fmt_t(t):
     return f"{t:.2f} s" if t is not None else "Not reached"
 
-def pf(t, limit):
-    if t is None:
-        return "❌ FAIL"
-    return "✅ PASS" if t <= limit else "❌ FAIL"
+def pf(t, lim):
+    return ("✅ PASS" if t is not None and t <= lim else "❌ FAIL")
 
 overall_pass = (
     T_48    is not None and T_48    <= 12
@@ -1045,114 +1023,82 @@ overall_pass = (
     and T_64_96 is not None and T_64_96 <= 18
 )
 
-# ── Metric Cards ──────────────────────────────────────────────────────────────
-
 if sim_stopped and T_96 is None:
-    top_v = sim_speed_out[-1] if sim_speed_out else 0
     st.warning(
-        f"Simulation stopped at {top_v:.1f} km/h — net force reached zero "
+        f"Simulation stopped at {sim_speed_out[-1]:.1f} km/h — net force reached zero "
         "before the target speed."
     )
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Time — IVM to 48.3 km/h",    fmt_time(T_48),    delta="Limit: 12 s", delta_color="off")
-col2.metric("Time — IVM to 96.6 km/h",    fmt_time(T_96),    delta="Limit: 30 s", delta_color="off")
-col3.metric("Time — 64.4 to 96.6 km/h",   fmt_time(T_64_96), delta="Limit: 18 s", delta_color="off")
-col4.metric("Overall Result", "✅ PASS" if overall_pass else "❌ FAIL")
-
-# ── PASS/FAIL Table ───────────────────────────────────────────────────────────
+_ac1, _ac2, _ac3, _ac4 = st.columns(4)
+_ac1.metric("IVM to 48.3 km/h",    fmt_t(T_48),    delta="Limit: 12 s", delta_color="off")
+_ac2.metric("IVM to 96.6 km/h",    fmt_t(T_96),    delta="Limit: 30 s", delta_color="off")
+_ac3.metric("64.4 to 96.6 km/h",   fmt_t(T_64_96), delta="Limit: 18 s", delta_color="off")
+_ac4.metric("Overall Result", "✅ PASS" if overall_pass else "❌ FAIL")
 
 st.subheader("Acceleration Test Results")
-pf_data = {
+st.dataframe(pd.DataFrame({
     "Test Target":    ["IVM to 48.3 km/h", "IVM to 96.6 km/h", "64.4 to 96.6 km/h"],
-    "Predicted Time": [fmt_time(T_48), fmt_time(T_96), fmt_time(T_64_96)],
+    "Predicted Time": [fmt_t(T_48), fmt_t(T_96), fmt_t(T_64_96)],
     "Limit (s)":      [12, 30, 18],
     "Pass / Fail":    [pf(T_48, 12), pf(T_96, 30), pf(T_64_96, 18)],
-}
-st.dataframe(pd.DataFrame(pf_data), use_container_width=True, hide_index=True)
+}), use_container_width=True, hide_index=True)
 
-# ── Four Plots ────────────────────────────────────────────────────────────────
-
+# Four plots
 if len(sim_rows) > 1:
     df_sim = pd.DataFrame(sim_rows)
+    _pl, _pr = st.columns(2)
 
-    col_left, col_right = st.columns(2)
-
-    # Plot 1 — Speed vs Time
-    with col_left:
+    with _pl:
         fig1, ax1 = plt.subplots(figsize=(6, 4))
         ax1.plot(df_sim["Cumulative Time (s)"], df_sim["Speed (km/h)"],
                  color="#1976D2", linewidth=2)
-        for tgt_kmh, tgt_s in [(48.3, 12), (96.6, 30)]:
-            ax1.axhline(tgt_kmh, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-            ax1.axvline(tgt_s,   color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-        for t_val, v_val in [(T_48, 48.3), (T_96, 96.6)]:
-            if t_val is not None:
-                ax1.plot(t_val, v_val, "o", color="#E64A19", zorder=5)
-                ax1.annotate(f"{t_val:.1f} s", (t_val, v_val),
+        for _tk, _vk2 in [(48.3, 12), (96.6, 30)]:
+            ax1.axhline(_tk, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+            ax1.axvline(_vk2, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+        for _tv, _sv in [(T_48, 48.3), (T_96, 96.6)]:
+            if _tv is not None:
+                ax1.plot(_tv, _sv, "o", color="#E64A19", zorder=5)
+                ax1.annotate(f"{_tv:.1f} s", (_tv, _sv),
                              textcoords="offset points", xytext=(6, -12),
                              fontsize=8, color="#E64A19")
-        ax1.set_xlabel("Time (s)", fontsize=10)
-        ax1.set_ylabel("Speed (km/h)", fontsize=10)
-        ax1.set_title("Speed vs Time", fontsize=11, fontweight="bold")
-        ax1.spines["top"].set_visible(False)
-        ax1.spines["right"].set_visible(False)
-        plt.tight_layout()
-        st.pyplot(fig1)
-        plt.close(fig1)
+        ax1.set_xlabel("Time (s)"); ax1.set_ylabel("Speed (km/h)")
+        ax1.set_title("Speed vs Time", fontweight="bold")
+        ax1.spines["top"].set_visible(False); ax1.spines["right"].set_visible(False)
+        plt.tight_layout(); st.pyplot(fig1); plt.close(fig1)
 
-    # Plot 2 — Acceleration vs Speed
-    with col_right:
+    with _pr:
         fig2, ax2 = plt.subplots(figsize=(6, 4))
         ax2.plot(df_sim["Speed (km/h)"], df_sim["Acceleration (m/s²)"],
                  color="#388E3C", linewidth=2)
         ax2.axhline(0, color="red", linestyle="--", linewidth=0.8)
-        ax2.set_xlabel("Speed (km/h)", fontsize=10)
-        ax2.set_ylabel("Acceleration (m/s²)", fontsize=10)
-        ax2.set_title("Acceleration vs Speed", fontsize=11, fontweight="bold")
-        ax2.spines["top"].set_visible(False)
-        ax2.spines["right"].set_visible(False)
-        plt.tight_layout()
-        st.pyplot(fig2)
-        plt.close(fig2)
+        ax2.set_xlabel("Speed (km/h)"); ax2.set_ylabel("Acceleration (m/s²)")
+        ax2.set_title("Acceleration vs Speed", fontweight="bold")
+        ax2.spines["top"].set_visible(False); ax2.spines["right"].set_visible(False)
+        plt.tight_layout(); st.pyplot(fig2); plt.close(fig2)
 
-    # Plot 3 — Tractive Force vs Speed
-    with col_left:
+    with _pl:
         fig3, ax3 = plt.subplots(figsize=(6, 4))
         ax3.plot(df_sim["Speed (km/h)"], df_sim["F_available (N)"],
                  color="#7B1FA2", linewidth=2, label="F available (best gear)")
         ax3.plot(df_sim["Speed (km/h)"], df_sim["F_resistance (N)"],
                  color="#E64A19", linewidth=2, linestyle="--", label="F resistance")
-        ax3.set_xlabel("Speed (km/h)", fontsize=10)
-        ax3.set_ylabel("Force (N)", fontsize=10)
-        ax3.set_title("Tractive Force vs Speed", fontsize=11, fontweight="bold")
+        ax3.set_xlabel("Speed (km/h)"); ax3.set_ylabel("Force (N)")
+        ax3.set_title("Tractive Force vs Speed", fontweight="bold")
         ax3.legend(fontsize=8)
-        ax3.spines["top"].set_visible(False)
-        ax3.spines["right"].set_visible(False)
-        plt.tight_layout()
-        st.pyplot(fig3)
-        plt.close(fig3)
+        ax3.spines["top"].set_visible(False); ax3.spines["right"].set_visible(False)
+        plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
 
-    # Plot 4 — Selected Gear vs Speed
-    with col_right:
-        # Convert gear column to numeric for plotting (drop non-numeric rows)
-        gear_numeric = pd.to_numeric(df_sim["Gear"], errors="coerce").dropna()
-        speed_for_gear = df_sim.loc[gear_numeric.index, "Speed (km/h)"]
+    with _pr:
+        _gear_num = pd.to_numeric(df_sim["Gear"], errors="coerce").dropna()
+        _spd_gear = df_sim.loc[_gear_num.index, "Speed (km/h)"]
         fig4, ax4 = plt.subplots(figsize=(6, 4))
-        ax4.step(speed_for_gear, gear_numeric,
-                 color="#0288D1", linewidth=2, where="post")
-        ax4.set_xlabel("Speed (km/h)", fontsize=10)
-        ax4.set_ylabel("Gear", fontsize=10)
-        n_gears = len(vp["gear_ratios"])
-        ax4.set_yticks(range(1, n_gears + 1))
-        ax4.set_title("Selected Gear vs Speed", fontsize=11, fontweight="bold")
-        ax4.spines["top"].set_visible(False)
-        ax4.spines["right"].set_visible(False)
-        plt.tight_layout()
-        st.pyplot(fig4)
-        plt.close(fig4)
+        ax4.step(_spd_gear, _gear_num, color="#0288D1", linewidth=2, where="post")
+        ax4.set_xlabel("Speed (km/h)"); ax4.set_ylabel("Gear")
+        ax4.set_yticks(range(1, len(vp["gear_ratios"]) + 1))
+        ax4.set_title("Selected Gear vs Speed", fontweight="bold")
+        ax4.spines["top"].set_visible(False); ax4.spines["right"].set_visible(False)
+        plt.tight_layout(); st.pyplot(fig4); plt.close(fig4)
 
-    # ── Expandable Simulation Table ───────────────────────────────────────────
     with st.expander("Simulation Data Table", expanded=False):
         st.caption(
             "Step-by-step output. Each row shows conditions at the start of that "
