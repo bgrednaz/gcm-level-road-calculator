@@ -198,19 +198,57 @@ DEFAULT_TRAILER_PROFILES = {
     },
 }
 
+
+# ─── PROFILE DEFAULT ENRICHMENT ────────────────────────────────────────────────
+
+def enrich_vehicle_profile(name, prof):
+    """Add newer tyre-load / friction fields to older profile dictionaries."""
+    p = dict(prof)
+    vehicle_mass = float(p.get("vehicle_mass", 0.0))
+
+    # Default base axle split before trailer tow ball load is applied.
+    front_each = vehicle_mass * 0.55 / 2.0
+    rear_each = vehicle_mass * 0.45 / 2.0
+
+    p.setdefault("front_tyre_pressure_kPa", p.get("tyre_pressure_kPa", 280.0))
+    p.setdefault("rear_tyre_pressure_kPa", p.get("tyre_pressure_kPa", 280.0))
+    p.setdefault("front_left_base_tyre_load_kg", front_each)
+    p.setdefault("front_right_base_tyre_load_kg", front_each)
+    p.setdefault("rear_left_base_tyre_load_kg", rear_each)
+    p.setdefault("rear_right_base_tyre_load_kg", rear_each)
+    p.setdefault("driven_axle_type", "Four Wheel Drive")
+    p.setdefault("tyre_road_friction_coefficient", 0.80)
+
+    # Keep legacy fields for compatibility with older saved profiles.
+    p.setdefault("num_vehicle_tyres", 4)
+    p.setdefault("tyre_pressure_kPa", p.get("front_tyre_pressure_kPa", 280.0))
+    return p
+
+DEFAULT_VEHICLE_PROFILES = {
+    name: enrich_vehicle_profile(name, prof)
+    for name, prof in DEFAULT_VEHICLE_PROFILES.items()
+}
+
 # ─── SESSION STATE INIT ───────────────────────────────────────────────────────────
 # Deep-copy profiles into session state on first load so edits persist per session.
 
 if "vehicle_profiles" not in st.session_state:
     st.session_state["vehicle_profiles"] = {
-        name: {**prof, "torque_curve": [tuple(pt) for pt in prof["torque_curve"]]}
+        name: {**enrich_vehicle_profile(name, prof), "torque_curve": [tuple(pt) for pt in prof["torque_curve"]]}
         for name, prof in DEFAULT_VEHICLE_PROFILES.items()
+    }
+else:
+    # Backwards compatibility: add any new fields to profiles already in session state.
+    st.session_state["vehicle_profiles"] = {
+        name: enrich_vehicle_profile(name, prof)
+        for name, prof in st.session_state["vehicle_profiles"].items()
     }
 
 # ─── CONSTANTS & TYRE TYPES ──────────────────────────────────────────────────────
 
 g = 9.81
 TYRE_TYPES = ["Highway", "All-Terrain", "Mud-Terrain"]
+DRIVEN_AXLE_TYPES = ["Rear Wheel Drive", "Front Wheel Drive", "Four Wheel Drive"]
 LOW_SPEED_MPS = 1.0   # m/s — below this speed, engine is at idle for launch
 
 # ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────────
@@ -404,14 +442,28 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
     e_fdr = st.number_input("Final drive ratio",        value=float(vp["final_drive_ratio"]),      min_value=0.01, step=0.01,  format="%.3f", key=f"e_fdr_{_vkv}")
     e_de  = st.number_input("Driveline efficiency (0-1)", value=float(vp["driveline_efficiency"]), min_value=0.0, max_value=1.0, step=0.01, format="%.2f", key=f"e_de_{_vkv}")
 
-    # ── Tyres ──
+    # ── Tyres / Loads / Traction ──
     st.markdown("**Tyres**")
     e_ts   = st.text_input("Tyre size",                 value=vp["tyre_size"],                   key=f"e_ts_{_vkv}")
     e_tr   = st.number_input("Loaded tyre radius (m)",  value=float(vp["tyre_radius"]),          min_value=0.01, step=0.005, format="%.3f", key=f"e_tr_{_vkv}")
-    e_nt   = st.number_input("Tyres carrying load",     value=int(vp["num_vehicle_tyres"]),      min_value=1, step=1,        key=f"e_nt_{_vkv}")
-    e_tp   = st.number_input("Tyre pressure (kPa)",     value=float(vp["tyre_pressure_kPa"]),   min_value=50.0, step=10.0,  key=f"e_tp_{_vkv}")
     e_tt   = st.selectbox("Tyre type", TYRE_TYPES,
                            index=TYRE_TYPES.index(vp["tyre_type"]),                              key=f"e_tt_{_vkv}")
+
+    st.markdown("**Vehicle Tyre Loads and Pressures**")
+    e_ftp = st.number_input("Front tyre pressure (kPa)", value=float(vp["front_tyre_pressure_kPa"]), min_value=50.0, step=10.0, key=f"e_ftp_{_vkv}")
+    e_rtp = st.number_input("Rear tyre pressure (kPa)",  value=float(vp["rear_tyre_pressure_kPa"]),  min_value=50.0, step=10.0, key=f"e_rtp_{_vkv}")
+    e_fl_load = st.number_input("Front left base tyre load (kg)",  value=float(vp["front_left_base_tyre_load_kg"]),  min_value=0.0, step=10.0, key=f"e_fl_load_{_vkv}")
+    e_fr_load = st.number_input("Front right base tyre load (kg)", value=float(vp["front_right_base_tyre_load_kg"]), min_value=0.0, step=10.0, key=f"e_fr_load_{_vkv}")
+    e_rl_load = st.number_input("Rear left base tyre load (kg)",   value=float(vp["rear_left_base_tyre_load_kg"]),   min_value=0.0, step=10.0, key=f"e_rl_load_{_vkv}")
+    e_rr_load = st.number_input("Rear right base tyre load (kg)",  value=float(vp["rear_right_base_tyre_load_kg"]),  min_value=0.0, step=10.0, key=f"e_rr_load_{_vkv}")
+
+    st.markdown("**Traction Limit**")
+    e_drive = st.selectbox(
+        "Driven axle type", DRIVEN_AXLE_TYPES,
+        index=DRIVEN_AXLE_TYPES.index(vp.get("driven_axle_type", "Four Wheel Drive")),
+        key=f"e_drive_{_vkv}"
+    )
+    e_mu = st.number_input("Tyre-road friction coefficient", value=float(vp["tyre_road_friction_coefficient"]), min_value=0.0, max_value=2.0, step=0.05, format="%.2f", key=f"e_mu_{_vkv}")
 
     # ── Aerodynamics ──
     st.markdown("**Aerodynamics**")
@@ -495,9 +547,17 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
                 "driveline_efficiency": e_de,
                 "tyre_size":           e_ts,
                 "tyre_radius":         e_tr,
-                "num_vehicle_tyres":   int(e_nt),
-                "tyre_pressure_kPa":   e_tp,
                 "tyre_type":           e_tt,
+                "front_tyre_pressure_kPa": e_ftp,
+                "rear_tyre_pressure_kPa":  e_rtp,
+                "tyre_pressure_kPa":   e_ftp,  # legacy/reference field
+                "num_vehicle_tyres":   4,
+                "front_left_base_tyre_load_kg":  e_fl_load,
+                "front_right_base_tyre_load_kg": e_fr_load,
+                "rear_left_base_tyre_load_kg":   e_rl_load,
+                "rear_right_base_tyre_load_kg":  e_rr_load,
+                "driven_axle_type":    e_drive,
+                "tyre_road_friction_coefficient": e_mu,
                 "Cd":                  e_cd,
                 "frontal_area":        e_fa,
                 "gear_ratios":         _new_gr,
@@ -615,12 +675,14 @@ vp = st.session_state["vehicle_profiles"][selected_vehicle]
 final_drive_ratio    = vp["final_drive_ratio"]
 driveline_efficiency = vp["driveline_efficiency"]
 tyre_radius          = vp["tyre_radius"]
-num_vehicle_tyres    = vp["num_vehicle_tyres"]
-vehicle_tyre_pressure = vp["tyre_pressure_kPa"]
 vehicle_tyre_type    = vp["tyre_type"]
+front_tyre_pressure  = vp["front_tyre_pressure_kPa"]
+rear_tyre_pressure   = vp["rear_tyre_pressure_kPa"]
 Cd_vehicle           = vp["Cd"]
 A_vehicle            = vp["frontal_area"]
 peak_power_kW        = vp["peak_power_kW"]
+driven_axle_type     = vp["driven_axle_type"]
+tyre_road_mu         = vp["tyre_road_friction_coefficient"]
 
 # ─── PHASE 1 CALCULATIONS ────────────────────────────────────────────────────────
 
@@ -629,15 +691,45 @@ V = speed_kmh / 3.6   # m/s
 m_total         = m_vehicle + m_trailer
 GCM_utilisation = (m_total / GCM) * 100.0
 
-Crr_vehicle = estimate_crr(vehicle_tyre_type, vehicle_tyre_pressure)
+Crr_vehicle_front = estimate_crr(vehicle_tyre_type, front_tyre_pressure)
+Crr_vehicle_rear  = estimate_crr(vehicle_tyre_type, rear_tyre_pressure)
+Crr_vehicle = (Crr_vehicle_front + Crr_vehicle_rear) / 2.0
 Crr_trailer = estimate_crr(trailer_tyre_type, trailer_tyre_pressure)
 
-avg_vehicle_load_per_tyre_N = (m_vehicle * g) / num_vehicle_tyres
+# Vehicle individual tyre loads. Base loads are stored in the vehicle profile.
+# Tow ball mass is added to the rear axle only and split equally left/right.
+fl_base_kg = float(vp["front_left_base_tyre_load_kg"])
+fr_base_kg = float(vp["front_right_base_tyre_load_kg"])
+rl_base_kg = float(vp["rear_left_base_tyre_load_kg"])
+rr_base_kg = float(vp["rear_right_base_tyre_load_kg"])
+
+fl_added_ball_kg = 0.0
+fr_added_ball_kg = 0.0
+rl_added_ball_kg = tow_ball_mass / 2.0
+rr_added_ball_kg = tow_ball_mass / 2.0
+
+fl_loaded_kg = fl_base_kg + fl_added_ball_kg
+fr_loaded_kg = fr_base_kg + fr_added_ball_kg
+rl_loaded_kg = rl_base_kg + rl_added_ball_kg
+rr_loaded_kg = rr_base_kg + rr_added_ball_kg
+
+fl_load_N = fl_loaded_kg * g
+fr_load_N = fr_loaded_kg * g
+rl_load_N = rl_loaded_kg * g
+rr_load_N = rr_loaded_kg * g
+
+front_loaded_N = fl_load_N + fr_load_N
+rear_loaded_N  = rl_load_N + rr_load_N
+loaded_vehicle_tyre_total_N = front_loaded_N + rear_loaded_N
+base_vehicle_tyre_mass_kg = fl_base_kg + fr_base_kg + rl_base_kg + rr_base_kg
+loaded_vehicle_tyre_mass_kg = fl_loaded_kg + fr_loaded_kg + rl_loaded_kg + rr_loaded_kg
+
 trailer_tyre_supported_mass = max(0.0, m_trailer - tow_ball_mass)
 avg_trailer_load_per_tyre_N = (trailer_tyre_supported_mass * g) / max(num_trailer_tyres, 1)
 
-F_rr_vehicle = Crr_vehicle * m_vehicle * g
-F_rr_trailer = Crr_trailer * m_trailer * g
+# Rolling resistance from tyre vertical loads.
+F_rr_vehicle = (Crr_vehicle_front * front_loaded_N) + (Crr_vehicle_rear * rear_loaded_N)
+F_rr_trailer = Crr_trailer * trailer_tyre_supported_mass * g
 
 F_aero_vehicle = 0.5 * air_density * Cd_vehicle * A_vehicle * V ** 2
 F_aero_trailer = 0.5 * air_density * Cd_trailer * A_trailer * V ** 2
@@ -667,13 +759,25 @@ if best_idx_p1 is not None:
     p1_power_W = _bp1["Cap Power (W)"]
     p1_F_tq    = _bp1["F_torque (N)"]
     p1_F_pw    = _bp1["F_power (N)"]
-    F_available = _bp1["F_available (N)"]
+    F_engine_available = _bp1["F_available (N)"]
     T_wheel    = (p1_torque * p1_ratio * final_drive_ratio * driveline_efficiency
                   if p1_torque else 0.0)
 else:
     p1_gear = p1_ratio = p1_rpm = p1_torque = p1_power_W = p1_F_tq = p1_F_pw = None
-    F_available = 0.0
+    F_engine_available = 0.0
     T_wheel = 0.0
+
+# Basic tyre-road friction limit based on driven axle normal load.
+if driven_axle_type == "Rear Wheel Drive":
+    driven_axle_normal_N = rear_loaded_N
+elif driven_axle_type == "Front Wheel Drive":
+    driven_axle_normal_N = front_loaded_N
+else:
+    driven_axle_normal_N = loaded_vehicle_tyre_total_N
+
+F_traction_limit = tyre_road_mu * driven_axle_normal_N
+F_available = min(F_engine_available, F_traction_limit)
+traction_limited = F_available < F_engine_available
 
 F_net   = F_available - F_resistance_total
 a       = F_net / m_total if m_total > 0 else 0.0
@@ -693,7 +797,14 @@ trl_deflection = max(0.0, trl_unloaded_r - trailer_tyre_radius)
 veh_sw = veh_tyre_geom["section_width_m"] if veh_tyre_geom else 0.265
 trl_sw = trl_tyre_geom["section_width_m"] if trl_tyre_geom else 0.235
 
-veh_cp_area, veh_cp_len = calc_contact_patch(avg_vehicle_load_per_tyre_N, vehicle_tyre_pressure, veh_sw)
+# Individual vehicle contact patches use loaded tyre loads and front/rear pressures.
+fl_cp_area, fl_cp_len = calc_contact_patch(fl_load_N, front_tyre_pressure, veh_sw)
+fr_cp_area, fr_cp_len = calc_contact_patch(fr_load_N, front_tyre_pressure, veh_sw)
+rl_cp_area, rl_cp_len = calc_contact_patch(rl_load_N, rear_tyre_pressure, veh_sw)
+rr_cp_area, rr_cp_len = calc_contact_patch(rr_load_N, rear_tyre_pressure, veh_sw)
+
+veh_cp_area = (fl_cp_area + fr_cp_area + rl_cp_area + rr_cp_area) / 4.0
+veh_cp_len  = (fl_cp_len + fr_cp_len + rl_cp_len + rr_cp_len) / 4.0
 trl_cp_area, trl_cp_len = calc_contact_patch(avg_trailer_load_per_tyre_N, trailer_tyre_pressure, trl_sw)
 
 Crr_veh_p2 = calc_crr_p2(vehicle_tyre_type, tyre_radius, veh_unloaded_r)
@@ -743,10 +854,13 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Peak power:  {vp['peak_power_kW']:.0f} kW @ {vp['peak_power_rpm']:,} RPM")
         st.write(f"Idle RPM: {vp['idle_rpm']:,}  |  Redline RPM: {vp['redline_rpm']:,}")
         st.write(f"Final drive: {final_drive_ratio:.3f}  |  Driveline eff: {driveline_efficiency:.2f}")
-        st.write(f"Tyre: {vp['tyre_size']}  ({vehicle_tyre_type}, {vehicle_tyre_pressure:.0f} kPa)")
+        st.write(f"Tyre: {vp['tyre_size']}  ({vehicle_tyre_type})")
+        st.write(f"Front pressure: {front_tyre_pressure:.0f} kPa  |  Rear pressure: {rear_tyre_pressure:.0f} kPa")
         st.write(f"Unloaded r: {veh_unloaded_r:.3f} m  |  Loaded r: {tyre_radius:.3f} m  |  Deflection: {veh_deflection*1000:.1f} mm")
-        st.write(f"Avg load/tyre: {avg_vehicle_load_per_tyre_N:,.0f} N")
-        st.write(f"Contact patch: {veh_cp_area*10000:.1f} cm²  ×  {veh_cp_len*100:.1f} cm")
+        st.write(f"Front axle loaded: {front_loaded_N/g:,.1f} kg  |  Rear axle loaded: {rear_loaded_N/g:,.1f} kg")
+        st.write(f"Loaded tyre mass total: {loaded_vehicle_tyre_mass_kg:,.1f} kg")
+        st.write(f"Average contact patch: {veh_cp_area*10000:.1f} cm²  ×  {veh_cp_len*100:.1f} cm")
+        st.write(f"Driven axle: {driven_axle_type}  |  μ: {tyre_road_mu:.2f}")
         st.write(f"Vehicle Cd: {Cd_vehicle:.2f}  |  Frontal area: {A_vehicle:.2f} m²")
         st.write(f"Phase 1 Crr: {Crr_vehicle:.5f}  |  Phase 2A Crr: {Crr_veh_p2:.5f}")
         st.write(f"Gear ratios: {vp['gear_ratios']}")
@@ -770,6 +884,43 @@ with st.expander("Profile Summary", expanded=False):
     st.caption(
         "Rolling resistance is estimated from tyre type, tyre loading, pressure and "
         "loaded-radius correction. Contact patch values are engineering approximations."
+    )
+
+
+# ─── VEHICLE INDIVIDUAL TYRE LOADS ──────────────────────────────────────────────
+
+with st.expander("Vehicle Individual Tyre Loads", expanded=False):
+    tyre_rows = [
+        {"Tyre Position": "Front Left",  "Base Load (kg)": fl_base_kg, "Added Tow Ball Load (kg)": fl_added_ball_kg, "Loaded Load (kg)": fl_loaded_kg, "Loaded Load (N)": fl_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fl_cp_area * 10000.0, "Contact Patch Length (cm)": fl_cp_len * 100.0},
+        {"Tyre Position": "Front Right", "Base Load (kg)": fr_base_kg, "Added Tow Ball Load (kg)": fr_added_ball_kg, "Loaded Load (kg)": fr_loaded_kg, "Loaded Load (N)": fr_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fr_cp_area * 10000.0, "Contact Patch Length (cm)": fr_cp_len * 100.0},
+        {"Tyre Position": "Rear Left",   "Base Load (kg)": rl_base_kg, "Added Tow Ball Load (kg)": rl_added_ball_kg, "Loaded Load (kg)": rl_loaded_kg, "Loaded Load (N)": rl_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rl_cp_area * 10000.0, "Contact Patch Length (cm)": rl_cp_len * 100.0},
+        {"Tyre Position": "Rear Right",  "Base Load (kg)": rr_base_kg, "Added Tow Ball Load (kg)": rr_added_ball_kg, "Loaded Load (kg)": rr_loaded_kg, "Loaded Load (N)": rr_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rr_cp_area * 10000.0, "Contact Patch Length (cm)": rr_cp_len * 100.0},
+    ]
+    df_tyres = pd.DataFrame(tyre_rows)
+    st.dataframe(df_tyres.round({
+        "Base Load (kg)": 1,
+        "Added Tow Ball Load (kg)": 1,
+        "Loaded Load (kg)": 1,
+        "Loaded Load (N)": 0,
+        "Contact Patch Area (cm²)": 1,
+        "Contact Patch Length (cm)": 1,
+    }), use_container_width=True, hide_index=True)
+
+    base_diff = base_vehicle_tyre_mass_kg - m_vehicle
+    loaded_diff = loaded_vehicle_tyre_mass_kg - (m_vehicle + tow_ball_mass)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Base tyre load total", f"{base_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{base_diff:+.1f} kg vs vehicle mass", delta_color="off")
+    c2.metric("Loaded tyre load total", f"{loaded_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{loaded_diff:+.1f} kg vs vehicle + ball", delta_color="off")
+    c3.metric("Tow ball mass added to rear axle", f"{tow_ball_mass:,.1f} kg")
+
+    if m_vehicle > 0 and abs(base_diff) > 0.02 * m_vehicle:
+        st.warning("The entered base individual tyre loads do not closely match the vehicle mass.")
+    if (m_vehicle + tow_ball_mass) > 0 and abs(loaded_diff) > 0.02 * (m_vehicle + tow_ball_mass):
+        st.warning("The loaded tyre loads do not closely match vehicle mass plus tow ball mass.")
+
+    st.caption(
+        "Tow ball load is added to the rear axle and split equally between rear left and rear right tyres. "
+        "This is a first-order engineering estimate and does not yet account for wheelbase or towbar overhang load transfer."
     )
 
 # ─── MASS CALCULATIONS ───────────────────────────────────────────────────────────
@@ -801,8 +952,13 @@ _dc4.metric(
     "Engine Power (capped)",
     f"{p1_power_W / 1000:.1f} kW" if p1_power_W is not None else "N/A",
 )
-_dc5.metric("Torque-Limited Force", f"{p1_F_tq:,.0f} N" if p1_F_tq is not None else "N/A")
-_dc6.metric("Available Tractive Force", f"{F_available:,.0f} N")
+_dc5.metric("Engine-Limited Available Force", f"{F_engine_available:,.0f} N")
+_dc6.metric("Final Available Force", f"{F_available:,.0f} N")
+
+_dc7, _dc8, _dc9 = st.columns(3)
+_dc7.metric("Traction Limit", f"{F_traction_limit:,.0f} N")
+_dc8.metric("Driven Axle Normal Load", f"{driven_axle_normal_N:,.0f} N")
+_dc9.metric("Limit State", "Traction-limited" if traction_limited else "Engine-limited")
 
 # ─── GEAR SELECTION CHECK ────────────────────────────────────────────────────────
 
@@ -822,7 +978,7 @@ with st.expander("Gear Selection Check", expanded=False):
         "Torque is interpolated from the vehicle profile torque curve at the calculated "
         "engine RPM. Engine power is calculated from torque and RPM, then capped by the "
         "profile peak power value. Peak torque RPM and peak power RPM are stored for "
-        "profile reference and validation."
+        "profile reference and validation. The traction limit is applied after the best engine-based gear is selected."
     )
     _disp = []
     for _r in gear_rows_p1:
@@ -841,6 +997,10 @@ with st.expander("Gear Selection Check", expanded=False):
             "Selected":       "★" if _r["Selected"] else "",
         })
     st.dataframe(pd.DataFrame(_disp), use_container_width=True, hide_index=True)
+    st.caption(
+        f"Traction limit after gear selection: {F_traction_limit:,.0f} N "
+        f"based on {driven_axle_type}, μ = {tyre_road_mu:.2f}, and driven axle normal load = {driven_axle_normal_N:,.0f} N."
+    )
 
 # ─── PERFORMANCE ─────────────────────────────────────────────────────────────────
 
@@ -861,20 +1021,24 @@ _fs_data = {
         "Vehicle Aerodynamic Drag",
         "Trailer Aerodynamic Drag",
         "Total Resistance",
-        "Available Tractive Force",
+        "Engine-Limited Tractive Force",
+        "Traction Limit",
+        "Final Available Tractive Force",
         "Net Force",
         "Hitch Force",
     ],
     "Value (N)": [
         round(F_rr_vehicle, 1), round(F_rr_trailer, 1),
         round(F_aero_vehicle, 1), round(F_aero_trailer, 1),
-        round(F_resistance_total, 1), round(F_available, 1),
+        round(F_resistance_total, 1), round(F_engine_available, 1),
+        round(F_traction_limit, 1), round(F_available, 1),
         round(F_net, 1), round(F_hitch, 1),
     ],
     "Value (kN)": [
         round(F_rr_vehicle / 1000, 3), round(F_rr_trailer / 1000, 3),
         round(F_aero_vehicle / 1000, 3), round(F_aero_trailer / 1000, 3),
-        round(F_resistance_total / 1000, 3), round(F_available / 1000, 3),
+        round(F_resistance_total / 1000, 3), round(F_engine_available / 1000, 3),
+        round(F_traction_limit / 1000, 3), round(F_available / 1000, 3),
         round(F_net / 1000, 3), round(F_hitch / 1000, 3),
     ],
 }
@@ -931,7 +1095,7 @@ sim_step_kmh   = _sc.number_input("Speed step (km/h)", value=0.5, min_value=0.01
                                    format="%.2f", key="sim_step")
 
 # Phase 2A rolling resistance (loaded-radius corrected, trailer tyre-supported mass only)
-F_rr_veh_p2 = Crr_veh_p2 * m_vehicle * g
+F_rr_veh_p2 = Crr_veh_p2 * loaded_vehicle_tyre_total_N
 F_rr_trl_p2 = Crr_trl_p2 * trailer_tyre_supported_mass * g
 
 P_watts_p2 = peak_power_kW * 1000.0
@@ -972,11 +1136,14 @@ for idx, v_kmh in enumerate(sim_speeds):
 
     if b_idx is not None:
         _bs = g_rows[b_idx]
-        best_F_avail = _bs["F_available (N)"]
+        best_F_engine = _bs["F_available (N)"]
         best_gear_n  = _bs["Gear"]
     else:
-        best_F_avail = 0.0
+        best_F_engine = 0.0
         best_gear_n  = None
+
+    best_F_avail = min(best_F_engine, F_traction_limit)
+    traction_limited_sim = best_F_avail < best_F_engine
 
     F_net_sim = best_F_avail - F_res
     a_sim     = F_net_sim / m_total if m_total > 0 else 0.0
@@ -986,7 +1153,10 @@ for idx, v_kmh in enumerate(sim_speeds):
     sim_rows.append({
         "Speed (km/h)":        round(v_kmh, 2),
         "Gear":                best_gear_n,
+        "F_engine_available (N)": round(best_F_engine, 1),
+        "F_traction_limit (N)":   round(F_traction_limit, 1),
         "F_available (N)":     round(best_F_avail, 1),
+        "Traction Limited":    traction_limited_sim,
         "F_rr Vehicle (N)":    round(F_rr_veh_p2, 1),
         "F_rr Trailer (N)":    round(F_rr_trl_p2, 1),
         "F_aero Vehicle (N)":  round(F_aero_veh, 1),
