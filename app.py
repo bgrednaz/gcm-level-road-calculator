@@ -13,8 +13,8 @@ st.set_page_config(page_title="GCM Level Road Calculator", layout="wide")
 
 DEFAULT_VEHICLE_PROFILES = {
     "Test Vehicle 1": {
-        "vehicle_mass": 3500.0,
-        "rated_GCM": 8000.0,
+        "vehicle_mass": 3350.0,
+        "rated_GCM": 6850.0,
         "peak_torque_Nm": 400.0,
         "peak_torque_rpm": 2000,
         "peak_power_kW": 200.0,
@@ -31,6 +31,17 @@ DEFAULT_VEHICLE_PROFILES = {
         "tyre_radius": 0.380,
         "num_vehicle_tyres": 4,
         "tyre_pressure_kPa": 280.0,
+        "front_tyre_pressure_kPa": 280.0,
+        "rear_tyre_pressure_kPa": 280.0,
+        "front_left_base_tyre_load_kg": 880.5,
+        "front_right_base_tyre_load_kg": 880.5,
+        "rear_left_base_tyre_load_kg": 794.5,
+        "rear_right_base_tyre_load_kg": 794.5,
+        "wheelbase_mm": 3125.0,
+        "rear_axle_to_towball_mm": 1450.0,
+        "front_axle_limit_kg": 1650.0,
+        "rear_axle_limit_kg": 2050.0,
+        "gvm_limit_kg": 3700.0,
         "tyre_type": "Highway",
         "Cd": 0.40,
         "frontal_area": 3.50,
@@ -162,7 +173,7 @@ DEFAULT_VEHICLE_PROFILES = {
 
 DEFAULT_TRAILER_PROFILES = {
     "AIC Dual-Axle Flat Front Trailer": {
-        "trailer_mass": 3500.0, "tow_ball_mass": 200.0,
+        "trailer_mass": 3500.0, "tow_ball_mass": 350.0,
         "num_axles": 2, "num_tyres": 4,
         "tyre_size": "235/75R15", "tyre_pressure_kPa": 350.0,
         "tyre_radius": 0.365, "tyre_type": "Highway",
@@ -218,6 +229,11 @@ def enrich_vehicle_profile(name, prof):
     p.setdefault("rear_right_base_tyre_load_kg", rear_each)
     p.setdefault("driven_axle_type", "Four Wheel Drive")
     p.setdefault("tyre_road_friction_coefficient", 0.80)
+    p.setdefault("wheelbase_mm", 3125.0)
+    p.setdefault("rear_axle_to_towball_mm", 1450.0)
+    p.setdefault("front_axle_limit_kg", vehicle_mass * 0.55 if vehicle_mass > 0 else 1650.0)
+    p.setdefault("rear_axle_limit_kg", vehicle_mass * 0.45 + 500.0 if vehicle_mass > 0 else 2050.0)
+    p.setdefault("gvm_limit_kg", vehicle_mass + 350.0 if vehicle_mass > 0 else 3700.0)
 
     # Keep legacy fields for compatibility with older saved profiles.
     p.setdefault("num_vehicle_tyres", 4)
@@ -455,6 +471,13 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
     e_rl_load = st.number_input("Rear left base tyre load (kg)",   value=float(vp["rear_left_base_tyre_load_kg"]),   min_value=0.0, step=10.0, key=f"e_rl_load_{_vkv}")
     e_rr_load = st.number_input("Rear right base tyre load (kg)",  value=float(vp["rear_right_base_tyre_load_kg"]),  min_value=0.0, step=10.0, key=f"e_rr_load_{_vkv}")
 
+    st.markdown("**Axle Geometry and Limits**")
+    e_wb = st.number_input("Wheelbase (mm)", value=float(vp["wheelbase_mm"]), min_value=0.0, step=25.0, key=f"e_wb_{_vkv}")
+    e_tb_overhang = st.number_input("Rear axle to towball (mm)", value=float(vp["rear_axle_to_towball_mm"]), min_value=0.0, step=25.0, key=f"e_tb_overhang_{_vkv}")
+    e_front_limit = st.number_input("Front axle limit (kg)", value=float(vp["front_axle_limit_kg"]), min_value=0.0, step=25.0, key=f"e_front_limit_{_vkv}")
+    e_rear_limit = st.number_input("Rear axle limit (kg)", value=float(vp["rear_axle_limit_kg"]), min_value=0.0, step=25.0, key=f"e_rear_limit_{_vkv}")
+    e_gvm_limit = st.number_input("GVM limit (kg)", value=float(vp["gvm_limit_kg"]), min_value=0.0, step=25.0, key=f"e_gvm_limit_{_vkv}")
+
     st.markdown("**Traction Limit**")
     e_drive = st.selectbox(
         "Driven axle type", DRIVEN_AXLE_TYPES,
@@ -554,6 +577,11 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
                 "front_right_base_tyre_load_kg": e_fr_load,
                 "rear_left_base_tyre_load_kg":   e_rl_load,
                 "rear_right_base_tyre_load_kg":  e_rr_load,
+                "wheelbase_mm":        e_wb,
+                "rear_axle_to_towball_mm": e_tb_overhang,
+                "front_axle_limit_kg": e_front_limit,
+                "rear_axle_limit_kg":  e_rear_limit,
+                "gvm_limit_kg":        e_gvm_limit,
                 "driven_axle_type":    e_drive,
                 "tyre_road_friction_coefficient": e_mu,
                 "Cd":                  e_cd,
@@ -681,6 +709,11 @@ A_vehicle            = vp["frontal_area"]
 peak_power_kW        = vp["peak_power_kW"]
 driven_axle_type     = vp["driven_axle_type"]
 tyre_road_mu         = vp["tyre_road_friction_coefficient"]
+wheelbase_mm         = float(vp["wheelbase_mm"])
+rear_axle_to_towball_mm = float(vp["rear_axle_to_towball_mm"])
+front_axle_limit_kg  = float(vp["front_axle_limit_kg"])
+rear_axle_limit_kg   = float(vp["rear_axle_limit_kg"])
+gvm_limit_kg         = float(vp["gvm_limit_kg"])
 
 # ─── PHASE 1 CALCULATIONS ────────────────────────────────────────────────────────
 
@@ -695,21 +728,42 @@ Crr_vehicle = (Crr_vehicle_front + Crr_vehicle_rear) / 2.0
 Crr_trailer = estimate_crr(trailer_tyre_type, trailer_tyre_pressure)
 
 # Vehicle individual tyre loads. Base loads are stored in the vehicle profile.
-# Tow ball mass is added to the rear axle only and split equally left/right.
+# The trailer towball download creates axle load transfer using the TD method:
+# front change = -ball_mass × rear_axle_to_towball / wheelbase
+# rear change  =  ball_mass × (1 + rear_axle_to_towball / wheelbase)
 fl_base_kg = float(vp["front_left_base_tyre_load_kg"])
 fr_base_kg = float(vp["front_right_base_tyre_load_kg"])
 rl_base_kg = float(vp["rear_left_base_tyre_load_kg"])
 rr_base_kg = float(vp["rear_right_base_tyre_load_kg"])
 
-fl_added_ball_kg = 0.0
-fr_added_ball_kg = 0.0
-rl_added_ball_kg = tow_ball_mass / 2.0
-rr_added_ball_kg = tow_ball_mass / 2.0
+front_axle_unhitched_kg = fl_base_kg + fr_base_kg
+rear_axle_unhitched_kg = rl_base_kg + rr_base_kg
+vehicle_test_mass_unhitched_kg = front_axle_unhitched_kg + rear_axle_unhitched_kg
 
-fl_loaded_kg = fl_base_kg + fl_added_ball_kg
-fr_loaded_kg = fr_base_kg + fr_added_ball_kg
-rl_loaded_kg = rl_base_kg + rl_added_ball_kg
-rr_loaded_kg = rr_base_kg + rr_added_ball_kg
+if wheelbase_mm > 0:
+    towball_lever_ratio = rear_axle_to_towball_mm / wheelbase_mm
+    front_axle_change_kg = -tow_ball_mass * towball_lever_ratio
+    rear_axle_change_kg = tow_ball_mass * (1.0 + towball_lever_ratio)
+else:
+    towball_lever_ratio = 0.0
+    front_axle_change_kg = 0.0
+    rear_axle_change_kg = tow_ball_mass
+
+front_axle_connected_kg = front_axle_unhitched_kg + front_axle_change_kg
+rear_axle_connected_kg = rear_axle_unhitched_kg + rear_axle_change_kg
+vehicle_test_mass_connected_kg = front_axle_connected_kg + rear_axle_connected_kg
+expected_vehicle_connected_kg = vehicle_test_mass_unhitched_kg + tow_ball_mass
+
+# Split connected axle loads equally left/right for this first-order model.
+fl_loaded_kg = front_axle_connected_kg / 2.0
+fr_loaded_kg = front_axle_connected_kg / 2.0
+rl_loaded_kg = rear_axle_connected_kg / 2.0
+rr_loaded_kg = rear_axle_connected_kg / 2.0
+
+fl_added_ball_kg = fl_loaded_kg - fl_base_kg
+fr_added_ball_kg = fr_loaded_kg - fr_base_kg
+rl_added_ball_kg = rl_loaded_kg - rl_base_kg
+rr_added_ball_kg = rr_loaded_kg - rr_base_kg
 
 fl_load_N = fl_loaded_kg * g
 fr_load_N = fr_loaded_kg * g
@@ -719,8 +773,8 @@ rr_load_N = rr_loaded_kg * g
 front_loaded_N = fl_load_N + fr_load_N
 rear_loaded_N  = rl_load_N + rr_load_N
 loaded_vehicle_tyre_total_N = front_loaded_N + rear_loaded_N
-base_vehicle_tyre_mass_kg = fl_base_kg + fr_base_kg + rl_base_kg + rr_base_kg
-loaded_vehicle_tyre_mass_kg = fl_loaded_kg + fr_loaded_kg + rl_loaded_kg + rr_loaded_kg
+base_vehicle_tyre_mass_kg = vehicle_test_mass_unhitched_kg
+loaded_vehicle_tyre_mass_kg = vehicle_test_mass_connected_kg
 
 trailer_tyre_supported_mass = max(0.0, m_trailer - tow_ball_mass)
 avg_trailer_load_per_tyre_N = (trailer_tyre_supported_mass * g) / max(num_trailer_tyres, 1)
@@ -859,6 +913,8 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Loaded tyre mass total: {loaded_vehicle_tyre_mass_kg:,.1f} kg")
         st.write(f"Average contact patch: {veh_cp_area*10000:.1f} cm²  ×  {veh_cp_len*100:.1f} cm")
         st.write(f"Driven axle: {driven_axle_type}  |  μ: {tyre_road_mu:.2f}")
+        st.write(f"Wheelbase: {wheelbase_mm:.0f} mm  |  Rear axle to towball: {rear_axle_to_towball_mm:.0f} mm")
+        st.write(f"Axle limits F/R: {front_axle_limit_kg:.0f} / {rear_axle_limit_kg:.0f} kg  |  GVM: {gvm_limit_kg:.0f} kg")
         st.write(f"Vehicle Cd: {Cd_vehicle:.2f}  |  Frontal area: {A_vehicle:.2f} m²")
         st.write(f"Phase 1 Crr: {Crr_vehicle:.5f}  |  Phase 2A Crr: {Crr_veh_p2:.5f}")
         st.write(f"Gear ratios: {vp['gear_ratios']}")
@@ -885,19 +941,67 @@ with st.expander("Profile Summary", expanded=False):
     )
 
 
+# ─── VEHICLE AXLE LOAD TRANSFER ────────────────────────────────────────────────
+
+with st.expander("Vehicle Axle Load Transfer", expanded=False):
+    axle_rows = [
+        {"Item": "Front axle unhitched load", "Value": front_axle_unhitched_kg, "Units": "kg", "Check": ""},
+        {"Item": "Rear axle unhitched load", "Value": rear_axle_unhitched_kg, "Units": "kg", "Check": ""},
+        {"Item": "Vehicle test mass unhitched", "Value": vehicle_test_mass_unhitched_kg, "Units": "kg", "Check": ""},
+        {"Item": "Towball download", "Value": tow_ball_mass, "Units": "kg", "Check": ""},
+        {"Item": "Wheelbase", "Value": wheelbase_mm, "Units": "mm", "Check": ""},
+        {"Item": "Rear axle to towball", "Value": rear_axle_to_towball_mm, "Units": "mm", "Check": ""},
+        {"Item": "Front axle load change", "Value": front_axle_change_kg, "Units": "kg", "Check": ""},
+        {"Item": "Rear axle load change", "Value": rear_axle_change_kg, "Units": "kg", "Check": ""},
+        {"Item": "Front axle connected load", "Value": front_axle_connected_kg, "Units": "kg", "Check": "PASS" if front_axle_connected_kg <= front_axle_limit_kg else "FAIL"},
+        {"Item": "Rear axle connected load", "Value": rear_axle_connected_kg, "Units": "kg", "Check": "PASS" if rear_axle_connected_kg <= rear_axle_limit_kg else "FAIL"},
+        {"Item": "Vehicle test mass connected", "Value": vehicle_test_mass_connected_kg, "Units": "kg", "Check": "PASS" if vehicle_test_mass_connected_kg <= gvm_limit_kg else "FAIL"},
+        {"Item": "Expected connected total", "Value": expected_vehicle_connected_kg, "Units": "kg", "Check": ""},
+        {"Item": "Front axle limit", "Value": front_axle_limit_kg, "Units": "kg", "Check": ""},
+        {"Item": "Rear axle limit", "Value": rear_axle_limit_kg, "Units": "kg", "Check": ""},
+        {"Item": "GVM limit", "Value": gvm_limit_kg, "Units": "kg", "Check": ""},
+    ]
+    st.dataframe(pd.DataFrame(axle_rows).round({"Value": 1}), use_container_width=True, hide_index=True)
+
+    _ax1, _ax2, _ax3 = st.columns(3)
+    _ax1.metric("Front axle connected", f"{front_axle_connected_kg:,.1f} kg", delta=f"Limit {front_axle_limit_kg:,.0f} kg", delta_color="off")
+    _ax2.metric("Rear axle connected", f"{rear_axle_connected_kg:,.1f} kg", delta=f"Limit {rear_axle_limit_kg:,.0f} kg", delta_color="off")
+    _ax3.metric("Connected vehicle mass", f"{vehicle_test_mass_connected_kg:,.1f} kg", delta=f"GVM {gvm_limit_kg:,.0f} kg", delta_color="off")
+
+    if wheelbase_mm <= 0:
+        st.warning("Wheelbase must be greater than zero for axle load transfer calculation.")
+    if rear_axle_to_towball_mm < 0:
+        st.warning("Rear axle to towball distance cannot be negative.")
+    if abs(vehicle_test_mass_connected_kg - expected_vehicle_connected_kg) > 1.0:
+        st.warning("Connected vehicle test mass does not match unhitched mass plus towball download within 1 kg.")
+    if front_axle_connected_kg < 0:
+        st.warning("Front axle connected load has become negative. Check input values.")
+    if front_axle_connected_kg > front_axle_limit_kg:
+        st.warning("Front axle connected load exceeds the front axle limit.")
+    if rear_axle_connected_kg > rear_axle_limit_kg:
+        st.warning("Rear axle connected load exceeds the rear axle limit.")
+    if vehicle_test_mass_connected_kg > gvm_limit_kg:
+        st.warning("Connected vehicle test mass exceeds the GVM limit.")
+
+    st.caption(
+        "This calculation follows the TD-style axle load transfer method. Because the towball load acts behind the rear axle, "
+        "the front axle unloads and the rear axle gains more than the towball download. The towball mass is not added again "
+        "to GCM because the trailer mass already includes it."
+    )
+
 # ─── VEHICLE INDIVIDUAL TYRE LOADS ──────────────────────────────────────────────
 
 with st.expander("Vehicle Individual Tyre Loads", expanded=False):
     tyre_rows = [
-        {"Tyre Position": "Front Left",  "Base Load (kg)": fl_base_kg, "Added Tow Ball Load (kg)": fl_added_ball_kg, "Loaded Load (kg)": fl_loaded_kg, "Loaded Load (N)": fl_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fl_cp_area * 10000.0, "Contact Patch Length (cm)": fl_cp_len * 100.0},
-        {"Tyre Position": "Front Right", "Base Load (kg)": fr_base_kg, "Added Tow Ball Load (kg)": fr_added_ball_kg, "Loaded Load (kg)": fr_loaded_kg, "Loaded Load (N)": fr_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fr_cp_area * 10000.0, "Contact Patch Length (cm)": fr_cp_len * 100.0},
-        {"Tyre Position": "Rear Left",   "Base Load (kg)": rl_base_kg, "Added Tow Ball Load (kg)": rl_added_ball_kg, "Loaded Load (kg)": rl_loaded_kg, "Loaded Load (N)": rl_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rl_cp_area * 10000.0, "Contact Patch Length (cm)": rl_cp_len * 100.0},
-        {"Tyre Position": "Rear Right",  "Base Load (kg)": rr_base_kg, "Added Tow Ball Load (kg)": rr_added_ball_kg, "Loaded Load (kg)": rr_loaded_kg, "Loaded Load (N)": rr_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rr_cp_area * 10000.0, "Contact Patch Length (cm)": rr_cp_len * 100.0},
+        {"Tyre Position": "Front Left",  "Base Load (kg)": fl_base_kg, "Axle Transfer Change (kg)": fl_added_ball_kg, "Loaded Load (kg)": fl_loaded_kg, "Loaded Load (N)": fl_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fl_cp_area * 10000.0, "Contact Patch Length (cm)": fl_cp_len * 100.0},
+        {"Tyre Position": "Front Right", "Base Load (kg)": fr_base_kg, "Axle Transfer Change (kg)": fr_added_ball_kg, "Loaded Load (kg)": fr_loaded_kg, "Loaded Load (N)": fr_load_N, "Pressure (kPa)": front_tyre_pressure, "Contact Patch Area (cm²)": fr_cp_area * 10000.0, "Contact Patch Length (cm)": fr_cp_len * 100.0},
+        {"Tyre Position": "Rear Left",   "Base Load (kg)": rl_base_kg, "Axle Transfer Change (kg)": rl_added_ball_kg, "Loaded Load (kg)": rl_loaded_kg, "Loaded Load (N)": rl_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rl_cp_area * 10000.0, "Contact Patch Length (cm)": rl_cp_len * 100.0},
+        {"Tyre Position": "Rear Right",  "Base Load (kg)": rr_base_kg, "Axle Transfer Change (kg)": rr_added_ball_kg, "Loaded Load (kg)": rr_loaded_kg, "Loaded Load (N)": rr_load_N, "Pressure (kPa)": rear_tyre_pressure,  "Contact Patch Area (cm²)": rr_cp_area * 10000.0, "Contact Patch Length (cm)": rr_cp_len * 100.0},
     ]
     df_tyres = pd.DataFrame(tyre_rows)
     st.dataframe(df_tyres.round({
         "Base Load (kg)": 1,
-        "Added Tow Ball Load (kg)": 1,
+        "Axle Transfer Change (kg)": 1,
         "Loaded Load (kg)": 1,
         "Loaded Load (N)": 0,
         "Contact Patch Area (cm²)": 1,
@@ -909,7 +1013,7 @@ with st.expander("Vehicle Individual Tyre Loads", expanded=False):
     c1, c2, c3 = st.columns(3)
     c1.metric("Base tyre load total", f"{base_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{base_diff:+.1f} kg vs vehicle mass", delta_color="off")
     c2.metric("Loaded tyre load total", f"{loaded_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{loaded_diff:+.1f} kg vs vehicle + ball", delta_color="off")
-    c3.metric("Tow ball mass added to rear axle", f"{tow_ball_mass:,.1f} kg")
+    c3.metric("Towball download", f"{tow_ball_mass:,.1f} kg")
 
     if m_vehicle > 0 and abs(base_diff) > 0.02 * m_vehicle:
         st.warning("The entered base individual tyre loads do not closely match the vehicle mass.")
@@ -917,8 +1021,8 @@ with st.expander("Vehicle Individual Tyre Loads", expanded=False):
         st.warning("The loaded tyre loads do not closely match vehicle mass plus tow ball mass.")
 
     st.caption(
-        "Tow ball load is added to the rear axle and split equally between rear left and rear right tyres. "
-        "This is a first-order engineering estimate and does not yet account for wheelbase or towbar overhang load transfer."
+        "Connected tyre loads are derived from the TD-style axle load transfer calculation using wheelbase and rear axle to towball distance. "
+        "Each connected axle load is split equally left/right for this first-order model."
     )
 
 # ─── MASS CALCULATIONS ───────────────────────────────────────────────────────────
