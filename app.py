@@ -170,45 +170,144 @@ DEFAULT_VEHICLE_PROFILES = {
 }
 
 # ─── TRAILER PROFILES ────────────────────────────────────────────────────────────
+# Trailer values are held in profiles. The normal calculator view only asks for
+# trailer mass, then interpolates towball mass and individual wheel loads from the
+# selected profile's calibrated loading points.
 
 DEFAULT_TRAILER_PROFILES = {
     "AIC Dual-Axle Flat Front Trailer": {
-        "trailer_mass": 3500.0, "tow_ball_mass": 350.0,
-        "num_axles": 2, "num_tyres": 4,
-        "tyre_size": "235/75R15", "tyre_pressure_kPa": 350.0,
-        "tyre_radius": 0.365, "tyre_type": "Highway",
-        "Cd": 0.55, "frontal_width": 2.40, "frontal_height": 1.80,
-    },
-    "Light Load Configuration": {
-        "trailer_mass": 1500.0, "tow_ball_mass": 100.0,
-        "num_axles": 2, "num_tyres": 4,
-        "tyre_size": "205/75R15", "tyre_pressure_kPa": 300.0,
-        "tyre_radius": 0.340, "tyre_type": "Highway",
-        "Cd": 0.55, "frontal_width": 2.20, "frontal_height": 1.60,
-    },
-    "Balanced Load Configuration": {
-        "trailer_mass": 2500.0, "tow_ball_mass": 150.0,
-        "num_axles": 2, "num_tyres": 4,
-        "tyre_size": "225/75R15", "tyre_pressure_kPa": 340.0,
-        "tyre_radius": 0.355, "tyre_type": "Highway",
-        "Cd": 0.55, "frontal_width": 2.30, "frontal_height": 1.70,
-    },
-    "Heavy Front Load Configuration": {
-        "trailer_mass": 3500.0, "tow_ball_mass": 350.0,
-        "num_axles": 2, "num_tyres": 4,
-        "tyre_size": "235/75R15", "tyre_pressure_kPa": 380.0,
-        "tyre_radius": 0.365, "tyre_type": "Highway",
-        "Cd": 0.55, "frontal_width": 2.40, "frontal_height": 1.90,
+        "profile_name": "AIC Dual-Axle Flat Front Trailer",
+        "number_of_axles": 2,
+        "number_of_tyres": 4,
+        "tyre_size": "235/75R15",
+        "tyre_pressure_kPa": 350.0,
+        "tyre_radius_m": 0.365,
+        "tyre_type": "Highway",
+        "trailer_Cd": 0.55,
+        "frontal_width_m": 2.40,
+        "frontal_height_m": 1.80,
+        "frontal_area_m2": 4.32,
+        "interpolation_points": [
+            {
+                "label": "Light load",
+                "trailer_mass_kg": 1500.0,
+                "tow_ball_mass_kg": 150.0,
+                "front_left_tyre_load_kg": 337.5,
+                "front_right_tyre_load_kg": 337.5,
+                "rear_left_tyre_load_kg": 337.5,
+                "rear_right_tyre_load_kg": 337.5,
+            },
+            {
+                "label": "Balanced load",
+                "trailer_mass_kg": 2500.0,
+                "tow_ball_mass_kg": 250.0,
+                "front_left_tyre_load_kg": 562.5,
+                "front_right_tyre_load_kg": 562.5,
+                "rear_left_tyre_load_kg": 562.5,
+                "rear_right_tyre_load_kg": 562.5,
+            },
+            {
+                "label": "GCM test load",
+                "trailer_mass_kg": 3500.0,
+                "tow_ball_mass_kg": 350.0,
+                "front_left_tyre_load_kg": 787.5,
+                "front_right_tyre_load_kg": 787.5,
+                "rear_left_tyre_load_kg": 787.5,
+                "rear_right_tyre_load_kg": 787.5,
+            },
+        ],
     },
     "Custom": {
-        "trailer_mass": 2000.0, "tow_ball_mass": 150.0,
-        "num_axles": 2, "num_tyres": 4,
-        "tyre_size": "225/75R15", "tyre_pressure_kPa": 340.0,
-        "tyre_radius": 0.355, "tyre_type": "Highway",
-        "Cd": 0.55, "frontal_width": 2.30, "frontal_height": 1.70,
+        "profile_name": "Custom",
+        "number_of_axles": 2,
+        "number_of_tyres": 4,
+        "tyre_size": "235/75R15",
+        "tyre_pressure_kPa": 350.0,
+        "tyre_radius_m": 0.365,
+        "tyre_type": "Highway",
+        "trailer_Cd": 0.55,
+        "frontal_width_m": 2.40,
+        "frontal_height_m": 1.80,
+        "frontal_area_m2": 4.32,
+        "interpolation_points": [
+            {
+                "label": "Light load",
+                "trailer_mass_kg": 1500.0,
+                "tow_ball_mass_kg": 150.0,
+                "front_left_tyre_load_kg": 337.5,
+                "front_right_tyre_load_kg": 337.5,
+                "rear_left_tyre_load_kg": 337.5,
+                "rear_right_tyre_load_kg": 337.5,
+            },
+            {
+                "label": "Balanced load",
+                "trailer_mass_kg": 2500.0,
+                "tow_ball_mass_kg": 250.0,
+                "front_left_tyre_load_kg": 562.5,
+                "front_right_tyre_load_kg": 562.5,
+                "rear_left_tyre_load_kg": 562.5,
+                "rear_right_tyre_load_kg": 562.5,
+            },
+            {
+                "label": "GCM test load",
+                "trailer_mass_kg": 3500.0,
+                "tow_ball_mass_kg": 350.0,
+                "front_left_tyre_load_kg": 787.5,
+                "front_right_tyre_load_kg": 787.5,
+                "rear_left_tyre_load_kg": 787.5,
+                "rear_right_tyre_load_kg": 787.5,
+            },
+        ],
     },
 }
 
+
+def enrich_trailer_profile(name, prof):
+    """Normalise older trailer profile dictionaries into the current schema."""
+    t = dict(prof)
+
+    # Convert older keys if present.
+    t.setdefault("profile_name", name)
+    t.setdefault("number_of_axles", t.get("num_axles", 2))
+    t.setdefault("number_of_tyres", t.get("num_tyres", 4))
+    t.setdefault("tyre_size", t.get("tyre_size", "235/75R15"))
+    t.setdefault("tyre_pressure_kPa", t.get("tyre_pressure_kPa", 350.0))
+    t.setdefault("tyre_radius_m", t.get("tyre_radius", t.get("tyre_radius_m", 0.365)))
+    t.setdefault("tyre_type", t.get("tyre_type", "Highway"))
+    t.setdefault("trailer_Cd", t.get("Cd", t.get("trailer_Cd", 0.55)))
+    t.setdefault("frontal_width_m", t.get("frontal_width", t.get("frontal_width_m", 2.40)))
+    t.setdefault("frontal_height_m", t.get("frontal_height", t.get("frontal_height_m", 1.80)))
+    t.setdefault("frontal_area_m2", t.get("frontal_area_m2", t["frontal_width_m"] * t["frontal_height_m"]))
+
+    if "interpolation_points" not in t:
+        m = float(t.get("trailer_mass", 3500.0))
+        ball = float(t.get("tow_ball_mass", 0.10 * m))
+        each = max(0.0, (m - ball) / 4.0)
+        t["interpolation_points"] = [
+            {
+                "label": "Profile load",
+                "trailer_mass_kg": m,
+                "tow_ball_mass_kg": ball,
+                "front_left_tyre_load_kg": each,
+                "front_right_tyre_load_kg": each,
+                "rear_left_tyre_load_kg": each,
+                "rear_right_tyre_load_kg": each,
+            }
+        ]
+
+    # Keep legacy keys for older sections or downloaded JSON compatibility.
+    t["num_axles"] = int(t["number_of_axles"])
+    t["num_tyres"] = int(t["number_of_tyres"])
+    t["tyre_radius"] = float(t["tyre_radius_m"])
+    t["Cd"] = float(t["trailer_Cd"])
+    t["frontal_width"] = float(t["frontal_width_m"])
+    t["frontal_height"] = float(t["frontal_height_m"])
+    return t
+
+DEFAULT_TRAILER_PROFILES = {
+    name: enrich_trailer_profile(name, prof)
+    for name, prof in DEFAULT_TRAILER_PROFILES.items()
+}
 
 # ─── PROFILE DEFAULT ENRICHMENT ────────────────────────────────────────────────
 
@@ -266,6 +365,20 @@ else:
     st.session_state["vehicle_profiles"] = {
         name: enrich_vehicle_profile(name, prof)
         for name, prof in st.session_state["vehicle_profiles"].items()
+    }
+
+
+# ─── TRAILER SESSION STATE INIT ─────────────────────────────────────────────────
+
+if "trailer_profiles" not in st.session_state:
+    st.session_state["trailer_profiles"] = {
+        name: enrich_trailer_profile(name, prof)
+        for name, prof in DEFAULT_TRAILER_PROFILES.items()
+    }
+else:
+    st.session_state["trailer_profiles"] = {
+        name: enrich_trailer_profile(name, prof)
+        for name, prof in st.session_state["trailer_profiles"].items()
     }
 
 # ─── CONSTANTS & TYRE TYPES ──────────────────────────────────────────────────────
@@ -415,6 +528,63 @@ def interp_time_at_speed(speeds_kmh, times_s, target_kmh):
             frac = (target_kmh - speeds_kmh[i - 1]) / (speeds_kmh[i] - speeds_kmh[i - 1])
             return times_s[i - 1] + frac * (times_s[i] - times_s[i - 1])
     return None
+
+
+def _linear_interp_extrap(x, xs, ys):
+    """Linear interpolation with end-segment extrapolation."""
+    pts = sorted(zip(xs, ys), key=lambda p: p[0])
+    if not pts:
+        return 0.0
+    if len(pts) == 1:
+        return float(pts[0][1])
+
+    if x <= pts[0][0]:
+        x0, y0 = pts[0]
+        x1, y1 = pts[1]
+    elif x >= pts[-1][0]:
+        x0, y0 = pts[-2]
+        x1, y1 = pts[-1]
+    else:
+        x0 = y0 = x1 = y1 = None
+        for i in range(1, len(pts)):
+            if pts[i - 1][0] <= x <= pts[i][0]:
+                x0, y0 = pts[i - 1]
+                x1, y1 = pts[i]
+                break
+
+    if x1 == x0:
+        return float(y0)
+    return float(y0 + (x - x0) * (y1 - y0) / (x1 - x0))
+
+
+def interpolate_trailer_profile(tp, trailer_mass_kg):
+    """Interpolate towball and wheel loads from trailer profile loading points."""
+    points = sorted(tp.get("interpolation_points", []), key=lambda p: p["trailer_mass_kg"])
+    if not points:
+        ball = 0.10 * trailer_mass_kg
+        each = max(0.0, (trailer_mass_kg - ball) / 4.0)
+        return {
+            "tow_ball_mass_kg": ball,
+            "front_left_tyre_load_kg": each,
+            "front_right_tyre_load_kg": each,
+            "rear_left_tyre_load_kg": each,
+            "rear_right_tyre_load_kg": each,
+        }, False, []
+
+    xs = [float(p["trailer_mass_kg"]) for p in points]
+    out = {}
+    for key in [
+        "tow_ball_mass_kg",
+        "front_left_tyre_load_kg",
+        "front_right_tyre_load_kg",
+        "rear_left_tyre_load_kg",
+        "rear_right_tyre_load_kg",
+    ]:
+        ys = [float(p[key]) for p in points]
+        out[key] = _linear_interp_extrap(float(trailer_mass_kg), xs, ys)
+
+    extrapolated = trailer_mass_kg < min(xs) or trailer_mass_kg > max(xs)
+    return out, extrapolated, points
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
 
@@ -633,59 +803,169 @@ st.sidebar.divider()
 
 st.sidebar.subheader("Fixed Dual-Axle Trailer Profile")
 selected_trailer = st.sidebar.selectbox(
-    "Select Trailer Profile", list(DEFAULT_TRAILER_PROFILES.keys())
+    "Select Trailer Profile", list(st.session_state["trailer_profiles"].keys())
 )
-tp = DEFAULT_TRAILER_PROFILES[selected_trailer]
+tp = st.session_state["trailer_profiles"][selected_trailer]
 tk = selected_trailer
+_tver = st.session_state.get(f"et_ver_{tk}", 0)
+_tkv = f"{tk}_v{_tver}"
 
+# Normal trailer input: only trailer mass is entered by the user.
 m_trailer = st.sidebar.number_input(
-    "Trailer mass (kg)", value=float(tp["trailer_mass"]),
-    min_value=0.0, step=50.0, key=f"tm_{tk}",
+    "Trailer mass / trailer weight (kg)",
+    value=float(tp.get("interpolation_points", [{"trailer_mass_kg": 3500.0}])[-1]["trailer_mass_kg"]),
+    min_value=0.0,
+    step=50.0,
+    key=f"tm_{tk}",
 )
-tow_ball_mass = st.sidebar.number_input(
-    "Tow ball mass (kg)", value=float(tp["tow_ball_mass"]),
-    min_value=0.0, step=10.0, key=f"tbm_{tk}",
-)
-num_trailer_tyres = int(st.sidebar.number_input(
-    "Number of trailer tyres", value=int(tp["num_tyres"]),
-    min_value=1, step=1, key=f"ntt_{tk}",
-))
-trailer_tyre_pressure = st.sidebar.number_input(
-    "Trailer tyre pressure (kPa)", value=float(tp["tyre_pressure_kPa"]),
-    min_value=50.0, step=10.0, key=f"ttp_{tk}",
-)
-trailer_tyre_type = st.sidebar.selectbox(
-    "Trailer tyre type", TYRE_TYPES,
-    index=TYRE_TYPES.index(tp["tyre_type"]), key=f"ttt_{tk}",
-)
-trailer_tyre_radius = st.sidebar.number_input(
-    "Trailer loaded tyre radius (m)", value=float(tp["tyre_radius"]),
-    min_value=0.01, step=0.005, format="%.3f", key=f"ttr_{tk}",
-)
-Cd_trailer = st.sidebar.number_input(
-    "Trailer Cd", value=float(tp["Cd"]),
-    min_value=0.0, step=0.01, format="%.2f", key=f"cdt_{tk}",
-)
-frontal_width = st.sidebar.number_input(
-    "Trailer frontal width (m)", value=float(tp["frontal_width"]),
-    min_value=0.1, step=0.05, format="%.2f", key=f"fw_{tk}",
-)
-frontal_height = st.sidebar.number_input(
-    "Trailer frontal height (m)", value=float(tp["frontal_height"]),
-    min_value=0.1, step=0.05, format="%.2f", key=f"fh_{tk}",
-)
-A_trailer_calc = frontal_width * frontal_height
-override_area = st.sidebar.checkbox(
-    "Override trailer frontal area", value=False, key=f"oa_{tk}"
-)
-if override_area:
-    A_trailer = st.sidebar.number_input(
-        "Trailer frontal area override (m²)", value=round(A_trailer_calc, 2),
-        min_value=0.1, step=0.05, format="%.2f", key=f"aft_ov_{tk}",
+
+# Interpolate trailer ball load and wheel loads from profile points.
+trailer_interp, trailer_extrapolated, trailer_points = interpolate_trailer_profile(tp, m_trailer)
+tow_ball_mass = trailer_interp["tow_ball_mass_kg"]
+trailer_fl_load_kg = trailer_interp["front_left_tyre_load_kg"]
+trailer_fr_load_kg = trailer_interp["front_right_tyre_load_kg"]
+trailer_rl_load_kg = trailer_interp["rear_left_tyre_load_kg"]
+trailer_rr_load_kg = trailer_interp["rear_right_tyre_load_kg"]
+
+num_trailer_tyres = int(tp["number_of_tyres"])
+trailer_tyre_pressure = float(tp["tyre_pressure_kPa"])
+trailer_tyre_type = tp["tyre_type"]
+trailer_tyre_radius = float(tp["tyre_radius_m"])
+Cd_trailer = float(tp["trailer_Cd"])
+frontal_width = float(tp["frontal_width_m"])
+frontal_height = float(tp["frontal_height_m"])
+A_trailer = float(tp.get("frontal_area_m2", frontal_width * frontal_height))
+
+if trailer_extrapolated:
+    st.sidebar.warning(
+        "The entered trailer mass is outside the calibrated trailer profile range. "
+        "Trailer ball load and wheel loads are extrapolated."
     )
-else:
-    A_trailer = A_trailer_calc
-    st.sidebar.caption(f"Trailer frontal area (w × h): {A_trailer:.2f} m²")
+
+with st.sidebar.expander("Trailer Plot", expanded=False):
+    if trailer_points:
+        df_tp_plot = pd.DataFrame(trailer_points).sort_values("trailer_mass_kg")
+        fig_t, ax_t = plt.subplots(figsize=(7, 4))
+        x = df_tp_plot["trailer_mass_kg"]
+        ax_t.plot(x, df_tp_plot["tow_ball_mass_kg"], marker="o", label="Towball mass")
+        ax_t.plot(x, df_tp_plot["front_left_tyre_load_kg"], marker="o", label="Front left tyre load")
+        ax_t.plot(x, df_tp_plot["front_right_tyre_load_kg"], marker="o", label="Front right tyre load")
+        ax_t.plot(x, df_tp_plot["rear_left_tyre_load_kg"], marker="o", label="Rear left tyre load")
+        ax_t.plot(x, df_tp_plot["rear_right_tyre_load_kg"], marker="o", label="Rear right tyre load")
+        ax_t.axvline(m_trailer, linestyle="--", linewidth=1.2, label="Current trailer mass")
+        ax_t.set_xlabel("Trailer mass (kg)")
+        ax_t.set_ylabel("Mass/load (kg)")
+        ax_t.set_title("Trailer profile interpolation curves")
+        ax_t.legend(fontsize=7)
+        ax_t.spines["top"].set_visible(False)
+        ax_t.spines["right"].set_visible(False)
+        plt.tight_layout()
+        st.pyplot(fig_t)
+        plt.close(fig_t)
+        st.dataframe(df_tp_plot, use_container_width=True, hide_index=True)
+    else:
+        st.info("No trailer interpolation points are available for this profile.")
+
+with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
+    st.caption("Changes apply to this browser session only. Download JSON to save trailer profiles for future reference.")
+
+    st.markdown("**Trailer Geometry and Tyres**")
+    et_axles = st.number_input("Number of axles", value=int(tp["number_of_axles"]), min_value=1, step=1, key=f"et_axles_{_tkv}")
+    et_tyres = st.number_input("Number of tyres", value=int(tp["number_of_tyres"]), min_value=1, step=1, key=f"et_tyres_{_tkv}")
+    et_ts = st.text_input("Tyre size", value=tp["tyre_size"], key=f"et_ts_{_tkv}")
+    et_tp = st.number_input("Tyre pressure (kPa)", value=float(tp["tyre_pressure_kPa"]), min_value=50.0, step=10.0, key=f"et_tp_{_tkv}")
+    et_tr = st.number_input("Loaded tyre radius (m)", value=float(tp["tyre_radius_m"]), min_value=0.01, step=0.005, format="%.3f", key=f"et_tr_{_tkv}")
+    et_tt = st.selectbox("Tyre type", TYRE_TYPES, index=TYRE_TYPES.index(tp["tyre_type"]), key=f"et_tt_{_tkv}")
+
+    st.markdown("**Aerodynamics**")
+    et_cd = st.number_input("Trailer Cd", value=float(tp["trailer_Cd"]), min_value=0.0, step=0.01, format="%.2f", key=f"et_cd_{_tkv}")
+    et_fw = st.number_input("Frontal width (m)", value=float(tp["frontal_width_m"]), min_value=0.1, step=0.05, format="%.2f", key=f"et_fw_{_tkv}")
+    et_fh = st.number_input("Frontal height (m)", value=float(tp["frontal_height_m"]), min_value=0.1, step=0.05, format="%.2f", key=f"et_fh_{_tkv}")
+    et_fa = st.number_input("Frontal area (m²)", value=float(tp.get("frontal_area_m2", et_fw * et_fh)), min_value=0.1, step=0.05, format="%.2f", key=f"et_fa_{_tkv}")
+
+    st.markdown("**Interpolation Points**")
+    _pts = sorted(tp.get("interpolation_points", []), key=lambda p: p["trailer_mass_kg"])
+    def _join_vals(key):
+        return ", ".join(f"{float(pt[key]):.4g}" for pt in _pts)
+
+    et_masses = st.text_input("Trailer masses (kg)", value=_join_vals("trailer_mass_kg"), key=f"et_masses_{_tkv}")
+    et_balls = st.text_input("Towball masses (kg)", value=_join_vals("tow_ball_mass_kg"), key=f"et_balls_{_tkv}")
+    et_fl = st.text_input("Front left tyre loads (kg)", value=_join_vals("front_left_tyre_load_kg"), key=f"et_fl_{_tkv}")
+    et_fr = st.text_input("Front right tyre loads (kg)", value=_join_vals("front_right_tyre_load_kg"), key=f"et_fr_{_tkv}")
+    et_rl = st.text_input("Rear left tyre loads (kg)", value=_join_vals("rear_left_tyre_load_kg"), key=f"et_rl_{_tkv}")
+    et_rr = st.text_input("Rear right tyre loads (kg)", value=_join_vals("rear_right_tyre_load_kg"), key=f"et_rr_{_tkv}")
+
+    _ta, _tb = st.columns(2)
+    _t_apply = _ta.button("Apply Trailer Profile Changes", key=f"t_apply_{tk}")
+    _t_reset = _tb.button("Reset Trailer Profile to Defaults", key=f"t_reset_{tk}")
+
+    if _t_apply:
+        _errors = []
+        try:
+            _masses = [float(x.strip()) for x in et_masses.split(",") if x.strip()]
+            _balls = [float(x.strip()) for x in et_balls.split(",") if x.strip()]
+            _fls = [float(x.strip()) for x in et_fl.split(",") if x.strip()]
+            _frs = [float(x.strip()) for x in et_fr.split(",") if x.strip()]
+            _rls = [float(x.strip()) for x in et_rl.split(",") if x.strip()]
+            _rrs = [float(x.strip()) for x in et_rr.split(",") if x.strip()]
+            counts = {len(_masses), len(_balls), len(_fls), len(_frs), len(_rls), len(_rrs)}
+            if len(counts) != 1:
+                _errors.append("All interpolation point arrays must have the same number of values.")
+            if len(_masses) < 1:
+                _errors.append("At least one interpolation point is required.")
+        except ValueError as _exc:
+            _errors.append(f"Parse error: {_exc}")
+
+        if _errors:
+            for _e in _errors:
+                st.error(_e)
+        else:
+            _new_points = []
+            for i, mass in enumerate(_masses):
+                _new_points.append({
+                    "label": f"Point {i + 1}",
+                    "trailer_mass_kg": mass,
+                    "tow_ball_mass_kg": _balls[i],
+                    "front_left_tyre_load_kg": _fls[i],
+                    "front_right_tyre_load_kg": _frs[i],
+                    "rear_left_tyre_load_kg": _rls[i],
+                    "rear_right_tyre_load_kg": _rrs[i],
+                })
+            st.session_state["trailer_profiles"][selected_trailer] = enrich_trailer_profile(selected_trailer, {
+                "profile_name": selected_trailer,
+                "number_of_axles": int(et_axles),
+                "number_of_tyres": int(et_tyres),
+                "tyre_size": et_ts,
+                "tyre_pressure_kPa": et_tp,
+                "tyre_radius_m": et_tr,
+                "tyre_type": et_tt,
+                "trailer_Cd": et_cd,
+                "frontal_width_m": et_fw,
+                "frontal_height_m": et_fh,
+                "frontal_area_m2": et_fa,
+                "interpolation_points": _new_points,
+            })
+            st.session_state[f"et_ver_{tk}"] = _tver + 1
+            st.success("✅ Trailer profile updated for this session.")
+            st.rerun()
+
+    if _t_reset:
+        _def_t = DEFAULT_TRAILER_PROFILES[selected_trailer]
+        st.session_state["trailer_profiles"][selected_trailer] = enrich_trailer_profile(selected_trailer, _def_t)
+        st.session_state[f"et_ver_{tk}"] = _tver + 1
+        st.success("✅ Trailer profile reset to defaults.")
+        st.rerun()
+
+    def _trailer_profiles_json():
+        return json.dumps(st.session_state["trailer_profiles"], indent=2)
+
+    st.download_button(
+        "📥 Download Trailer Profiles JSON",
+        _trailer_profiles_json(),
+        file_name="trailer_profiles.json",
+        mime="application/json",
+        key=f"t_dl_{tk}",
+    )
 
 st.sidebar.divider()
 
@@ -784,7 +1064,13 @@ loaded_vehicle_tyre_total_N = front_loaded_N + rear_loaded_N
 base_vehicle_tyre_mass_kg = vehicle_test_mass_unhitched_kg
 loaded_vehicle_tyre_mass_kg = vehicle_test_mass_connected_kg
 
-trailer_tyre_supported_mass = max(0.0, m_trailer - tow_ball_mass)
+trailer_fl_load_N = trailer_fl_load_kg * g
+trailer_fr_load_N = trailer_fr_load_kg * g
+trailer_rl_load_N = trailer_rl_load_kg * g
+trailer_rr_load_N = trailer_rr_load_kg * g
+trailer_tyre_supported_mass = max(0.0, trailer_fl_load_kg + trailer_fr_load_kg + trailer_rl_load_kg + trailer_rr_load_kg)
+expected_trailer_tyre_supported_mass = max(0.0, m_trailer - tow_ball_mass)
+trailer_supported_mass_diff = trailer_tyre_supported_mass - expected_trailer_tyre_supported_mass
 avg_trailer_load_per_tyre_N = (trailer_tyre_supported_mass * g) / max(num_trailer_tyres, 1)
 
 # Rolling resistance from tyre vertical loads.
@@ -865,7 +1151,12 @@ rr_cp_area, rr_cp_len = calc_contact_patch(rr_load_N, rear_tyre_pressure, veh_sw
 
 veh_cp_area = (fl_cp_area + fr_cp_area + rl_cp_area + rr_cp_area) / 4.0
 veh_cp_len  = (fl_cp_len + fr_cp_len + rl_cp_len + rr_cp_len) / 4.0
-trl_cp_area, trl_cp_len = calc_contact_patch(avg_trailer_load_per_tyre_N, trailer_tyre_pressure, trl_sw)
+trl_fl_cp_area, trl_fl_cp_len = calc_contact_patch(trailer_fl_load_N, trailer_tyre_pressure, trl_sw)
+trl_fr_cp_area, trl_fr_cp_len = calc_contact_patch(trailer_fr_load_N, trailer_tyre_pressure, trl_sw)
+trl_rl_cp_area, trl_rl_cp_len = calc_contact_patch(trailer_rl_load_N, trailer_tyre_pressure, trl_sw)
+trl_rr_cp_area, trl_rr_cp_len = calc_contact_patch(trailer_rr_load_N, trailer_tyre_pressure, trl_sw)
+trl_cp_area = (trl_fl_cp_area + trl_fr_cp_area + trl_rl_cp_area + trl_rr_cp_area) / 4.0
+trl_cp_len = (trl_fl_cp_len + trl_fr_cp_len + trl_rl_cp_len + trl_rr_cp_len) / 4.0
 
 Crr_veh_p2 = calc_crr_p2(vehicle_tyre_type, tyre_radius, veh_unloaded_r)
 Crr_trl_p2 = calc_crr_p2(trailer_tyre_type, trailer_tyre_radius, trl_unloaded_r)
@@ -933,8 +1224,8 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Tyre-supported mass: {trailer_tyre_supported_mass:,.0f} kg")
         st.write(f"Tyre: {tp['tyre_size']}  ({trailer_tyre_type}, {trailer_tyre_pressure:.0f} kPa)")
         st.write(f"Unloaded r: {trl_unloaded_r:.3f} m  |  Loaded r: {trailer_tyre_radius:.3f} m  |  Deflection: {trl_deflection*1000:.1f} mm")
-        st.write(f"Avg load/tyre: {avg_trailer_load_per_tyre_N:,.0f} N")
-        st.write(f"Contact patch: {trl_cp_area*10000:.1f} cm²  ×  {trl_cp_len*100:.1f} cm")
+        st.write(f"Interpolated tyre-supported mass: {trailer_tyre_supported_mass:,.1f} kg")
+        st.write(f"Average contact patch: {trl_cp_area*10000:.1f} cm²  ×  {trl_cp_len*100:.1f} cm")
         st.write(f"Trailer Cd: {Cd_trailer:.2f}  |  Frontal area: {A_trailer:.2f} m²  ({frontal_width:.2f} × {frontal_height:.2f} m)")
         st.write(f"Phase 1 Crr: {Crr_trailer:.5f}  |  Phase 2A Crr: {Crr_trl_p2:.5f}")
     st.markdown("---")
@@ -1032,6 +1323,35 @@ with st.expander("Vehicle Individual Tyre Loads", expanded=False):
         "Connected tyre loads are derived from the TD-style axle load transfer calculation using wheelbase and rear axle to towball distance. "
         "Each connected axle load is split equally left/right for this first-order model."
     )
+
+
+# ─── TRAILER WHEEL LOAD SUMMARY ────────────────────────────────────────────────
+
+with st.expander("Trailer Wheel Load Summary", expanded=False):
+    trl_rows = [
+        {"Tyre Position": "Front Left", "Interpolated Tyre Load (kg)": trailer_fl_load_kg, "Tyre Load (N)": trailer_fl_load_N, "Pressure (kPa)": trailer_tyre_pressure, "Contact Patch Area (cm²)": trl_fl_cp_area * 10000.0, "Contact Patch Length (cm)": trl_fl_cp_len * 100.0},
+        {"Tyre Position": "Front Right", "Interpolated Tyre Load (kg)": trailer_fr_load_kg, "Tyre Load (N)": trailer_fr_load_N, "Pressure (kPa)": trailer_tyre_pressure, "Contact Patch Area (cm²)": trl_fr_cp_area * 10000.0, "Contact Patch Length (cm)": trl_fr_cp_len * 100.0},
+        {"Tyre Position": "Rear Left", "Interpolated Tyre Load (kg)": trailer_rl_load_kg, "Tyre Load (N)": trailer_rl_load_N, "Pressure (kPa)": trailer_tyre_pressure, "Contact Patch Area (cm²)": trl_rl_cp_area * 10000.0, "Contact Patch Length (cm)": trl_rl_cp_len * 100.0},
+        {"Tyre Position": "Rear Right", "Interpolated Tyre Load (kg)": trailer_rr_load_kg, "Tyre Load (N)": trailer_rr_load_N, "Pressure (kPa)": trailer_tyre_pressure, "Contact Patch Area (cm²)": trl_rr_cp_area * 10000.0, "Contact Patch Length (cm)": trl_rr_cp_len * 100.0},
+    ]
+    st.dataframe(pd.DataFrame(trl_rows).round({
+        "Interpolated Tyre Load (kg)": 1,
+        "Tyre Load (N)": 0,
+        "Contact Patch Area (cm²)": 1,
+        "Contact Patch Length (cm)": 1,
+    }), use_container_width=True, hide_index=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Trailer mass", f"{m_trailer:,.1f} kg")
+    c2.metric("Interpolated towball mass", f"{tow_ball_mass:,.1f} kg")
+    c3.metric("Interpolated tyre-supported mass", f"{trailer_tyre_supported_mass:,.1f} kg")
+    c4.metric("Support mass difference", f"{trailer_supported_mass_diff:+.1f} kg")
+
+    st.write(f"Expected tyre-supported mass = trailer mass - towball mass = {expected_trailer_tyre_supported_mass:,.1f} kg")
+    if expected_trailer_tyre_supported_mass > 0 and abs(trailer_supported_mass_diff) > 0.02 * expected_trailer_tyre_supported_mass:
+        st.warning("The interpolated trailer tyre-supported mass differs from trailer mass minus towball mass by more than 2%.")
+    if trailer_extrapolated:
+        st.warning("The entered trailer mass is outside the calibrated trailer profile range. Trailer ball load and wheel loads are extrapolated.")
 
 # ─── MASS CALCULATIONS ───────────────────────────────────────────────────────────
 
