@@ -832,7 +832,7 @@ if gcm_exceeded:
 if no_valid_gear:
     st.error(
         f"NO VALID GEAR at {speed_kmh:.0f} km/h — all gears exceed the "
-        f"redline ({vp['redline_rpm']:,} RPM) or fall below idle."
+        f"redline ({vp['redline_rpm']:,} RPM)."
     )
 elif net_negative:
     st.warning(
@@ -964,10 +964,9 @@ with st.expander("Gear Selection Check", expanded=False):
     st.caption(
         f"All gears evaluated at {speed_kmh:.0f} km/h ({V:.2f} m/s).  "
         f"Idle: {vp['idle_rpm']:,} RPM  |  Redline: {vp['redline_rpm']:,} RPM.  "
-        "At road speeds < 1 m/s (launch), effective RPM is floored at idle so the "
-        "simulation can start from rest. Calculated RPM is floored at idle RPM to "
-        "allow launch/low-speed clutch or torque converter slip. Gears are only marked "
-        "invalid if effective RPM exceeds redline. — the engine cannot sustain that speed."
+        "Calculated engine RPM is floored at idle RPM to allow launch/low-speed "
+        "clutch or torque converter slip. Gears are only marked invalid if "
+        "effective RPM exceeds redline."
     )
     st.info(
         "**Gear selection note:** The current model selects the valid gear that produces "
@@ -1247,12 +1246,14 @@ if len(sim_rows) > 1:
 
     with _pl:
         fig3, ax3 = plt.subplots(figsize=(6, 4))
+        ax3.plot(df_sim["Speed (km/h)"], df_sim["F_engine_available (N)"],
+                 color="#7B1FA2", linewidth=2, label="Engine-limited tractive force")
         ax3.plot(df_sim["Speed (km/h)"], df_sim["F_available (N)"],
-                 color="#7B1FA2", linewidth=2, label="F available (best gear)")
+                 color="#0288D1", linewidth=2, label="Final available force after traction limit")
         ax3.plot(df_sim["Speed (km/h)"], df_sim["F_resistance (N)"],
-                 color="#E64A19", linewidth=2, linestyle="--", label="F resistance")
+                 color="#E64A19", linewidth=2, linestyle="--", label="Total resistance")
         ax3.set_xlabel("Speed (km/h)"); ax3.set_ylabel("Force (N)")
-        ax3.set_title("Tractive Force vs Speed", fontweight="bold")
+        ax3.set_title("Tractive Force and Resistance vs Speed", fontweight="bold")
         ax3.legend(fontsize=8)
         ax3.spines["top"].set_visible(False); ax3.spines["right"].set_visible(False)
         plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
