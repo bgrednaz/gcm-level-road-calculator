@@ -367,6 +367,79 @@ DEFAULT_TRAILER_PROFILES = {
     for name, prof in DEFAULT_TRAILER_PROFILES.items()
 }
 
+# ─── AUTOMATIC TORQUE CURVE GENERATION ─────────────────────────────────────────
+
+def generate_torque_curve_from_profile(
+    peak_torque_Nm, peak_torque_rpm, peak_power_kW,
+    peak_power_rpm, idle_rpm, redline_rpm,
+):
+    """
+    Generate a simple estimated torque curve from ordinary vehicle profile values.
+
+    The user enters peak torque, peak power, the RPM where each occurs, idle RPM,
+    and redline RPM. The app then builds an approximate torque curve internally so
+    the normal profile editor does not require manual RPM/torque point entry.
+    """
+    peak_torque_Nm = max(float(peak_torque_Nm), 0.0)
+    peak_torque_rpm = max(float(peak_torque_rpm), 1.0)
+    peak_power_kW = max(float(peak_power_kW), 0.0)
+    peak_power_rpm = max(float(peak_power_rpm), 1.0)
+    idle_rpm = max(float(idle_rpm), 1.0)
+    redline_rpm = max(float(redline_rpm), idle_rpm)
+
+    peak_power_W = peak_power_kW * 1000.0
+    torque_at_peak_power = peak_power_W / max(peak_power_rpm * 2.0 * math.pi / 60.0, 1.0)
+    torque_at_peak_power = max(torque_at_peak_power, 0.0)
+
+    rpm_points = [
+        idle_rpm,
+        (idle_rpm + peak_torque_rpm) / 2.0,
+        peak_torque_rpm,
+        (peak_torque_rpm + peak_power_rpm) / 2.0,
+        peak_power_rpm,
+        (peak_power_rpm + redline_rpm) / 2.0,
+        redline_rpm,
+    ]
+    torque_points = [
+        0.60 * peak_torque_Nm,
+        0.85 * peak_torque_Nm,
+        peak_torque_Nm,
+        (peak_torque_Nm + torque_at_peak_power) / 2.0,
+        torque_at_peak_power,
+        0.90 * torque_at_peak_power,
+        0.75 * torque_at_peak_power,
+    ]
+
+    # Remove duplicate RPMs by keeping the highest torque at that RPM.
+    curve_by_rpm = {}
+    for rpm, tq in zip(rpm_points, torque_points):
+        rpm_key = int(round(rpm))
+        tq_val = max(float(tq), 0.0)
+        if rpm_key not in curve_by_rpm:
+            curve_by_rpm[rpm_key] = tq_val
+        else:
+            curve_by_rpm[rpm_key] = max(curve_by_rpm[rpm_key], tq_val)
+
+    return [(float(rpm), float(tq)) for rpm, tq in sorted(curve_by_rpm.items())]
+
+
+def get_active_torque_curve(profile):
+    """Prefer the generated torque curve, with legacy torque_curve fallback."""
+    curve = profile.get("generated_torque_curve")
+    if curve and len(curve) >= 2:
+        return [tuple(pt) for pt in curve]
+    curve = profile.get("torque_curve")
+    if curve and len(curve) >= 2:
+        return [tuple(pt) for pt in curve]
+    return generate_torque_curve_from_profile(
+        profile.get("peak_torque_Nm", 0.0),
+        profile.get("peak_torque_rpm", 1.0),
+        profile.get("peak_power_kW", 0.0),
+        profile.get("peak_power_rpm", 1.0),
+        profile.get("idle_rpm", 1.0),
+        profile.get("redline_rpm", 1.0),
+    )
+
 # ─── PROFILE DEFAULT ENRICHMENT ────────────────────────────────────────────────
 
 def enrich_vehicle_profile(name, prof):
@@ -400,6 +473,20 @@ def enrich_vehicle_profile(name, prof):
     p.setdefault("rear_axle_limit_kg", vehicle_mass * 0.45 + 500.0 if vehicle_mass > 0 else 2050.0)
     p.setdefault("gvm_limit_kg", vehicle_mass + 350.0 if vehicle_mass > 0 else 3700.0)
 
+    # Generate the working torque curve from profile engine specs.
+    # Legacy torque_curve values are retained only for backwards compatibility.
+    if not p.get("generated_torque_curve"):
+        p["generated_torque_curve"] = generate_torque_curve_from_profile(
+            p.get("peak_torque_Nm", 0.0),
+            p.get("peak_torque_rpm", 1.0),
+            p.get("peak_power_kW", 0.0),
+            p.get("peak_power_rpm", 1.0),
+            p.get("idle_rpm", 1.0),
+            p.get("redline_rpm", 1.0),
+        )
+    else:
+        p["generated_torque_curve"] = [tuple(pt) for pt in p["generated_torque_curve"]]
+
     # Keep legacy fields for compatibility with older saved profiles.
     p.setdefault("num_vehicle_tyres", 4)
     p.setdefault("tyre_pressure_kPa", p.get("front_tyre_pressure_kPa", 280.0))
@@ -415,7 +502,7 @@ DEFAULT_VEHICLE_PROFILES = {
 
 if "vehicle_profiles" not in st.session_state:
     st.session_state["vehicle_profiles"] = {
-        name: {**enrich_vehicle_profile(name, prof), "torque_curve": [tuple(pt) for pt in prof["torque_curve"]]}
+        name: enrich_vehicle_profile(name, prof)
         for name, prof in DEFAULT_VEHICLE_PROFILES.items()
     }
 else:
@@ -752,36 +839,12 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
     _gr_default = ", ".join(f"{r:.4g}" for r in vp["gear_ratios"])
     e_gr = st.text_input("Gear ratios (comma-separated)", value=_gr_default, key=f"e_gr_{_vkv}")
 
-    # ── Torque Curve ──
-    st.markdown("**Torque Curve**")
-    _tc_rpm_def = ", ".join(str(int(pt[0])) for pt in vp["torque_curve"])
-    _tc_tq_def  = ", ".join(f"{pt[1]:.4g}" for pt in vp["torque_curve"])
-    e_tc_rpm = st.text_input("RPM points",          value=_tc_rpm_def, key=f"e_tc_rpm_{_vkv}")
-    e_tc_tq  = st.text_input("Torque values (Nm)",  value=_tc_tq_def,  key=f"e_tc_tq_{_vkv}")
-
-    # ── Validation Warnings ──
-    try:
-        _check_rpm = [float(x.strip()) for x in e_tc_rpm.split(",") if x.strip()]
-        _check_tq  = [float(x.strip()) for x in e_tc_tq.split(",")  if x.strip()]
-        if len(_check_rpm) == len(_check_tq) and len(_check_rpm) >= 2:
-            _check_curve = list(zip(_check_rpm, _check_tq))
-            _max_curve_tq = max(t for _, t in _check_curve)
-            if abs(_max_curve_tq - e_ptq) > 10:
-                st.warning(
-                    f"The entered peak torque ({e_ptq:.0f} Nm) does not match "
-                    f"the maximum value in the torque curve ({_max_curve_tq:.0f} Nm)."
-                )
-            _tq_at_pp = interp_torque(_check_curve, e_ppw_rpm)
-            if _tq_at_pp is not None:
-                _calc_pw_kW = _tq_at_pp * e_ppw_rpm * 2 * math.pi / 60.0 / 1000.0
-                if abs(_calc_pw_kW - e_ppw) > max(10.0, e_ppw * 0.10):
-                    st.warning(
-                        f"The entered peak power ({e_ppw:.0f} kW) does not closely match "
-                        f"the torque curve at the stated peak power RPM "
-                        f"({_calc_pw_kW:.1f} kW calculated at {int(e_ppw_rpm)} RPM)."
-                    )
-    except Exception:
-        pass
+    # ── Generated Torque Curve Notice ──
+    st.markdown("**Generated Torque Curve**")
+    st.caption(
+        "Torque curve points are generated automatically from peak torque, peak power, "
+        "their RPM values, idle RPM and redline RPM. They are not directly editable."
+    )
 
     # ── Buttons ──
     _ca, _cb = st.columns(2)
@@ -791,18 +854,9 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
     if _apply:
         _errors = []
         try:
-            _new_gr  = [float(x.strip()) for x in e_gr.split(",")     if x.strip()]
-            _new_rpm = [float(x.strip()) for x in e_tc_rpm.split(",") if x.strip()]
-            _new_tq  = [float(x.strip()) for x in e_tc_tq.split(",")  if x.strip()]
+            _new_gr  = [float(x.strip()) for x in e_gr.split(",") if x.strip()]
             if not _new_gr:
                 _errors.append("At least one gear ratio is required.")
-            if len(_new_rpm) != len(_new_tq):
-                _errors.append(
-                    f"RPM points ({len(_new_rpm)}) and torque values ({len(_new_tq)}) "
-                    "must have the same count."
-                )
-            elif len(_new_rpm) < 2:
-                _errors.append("At least 2 torque curve points are required.")
         except ValueError as _exc:
             _errors.append(f"Parse error: {_exc}")
 
@@ -819,7 +873,12 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
                 "peak_power_rpm":      int(e_ppw_rpm),
                 "idle_rpm":            int(e_idle),
                 "redline_rpm":         int(e_redline),
-                "torque_curve":        [(r, t) for r, t in zip(_new_rpm, _new_tq)],
+                "generated_torque_curve": generate_torque_curve_from_profile(
+                    e_ptq, e_ptq_rpm, e_ppw, e_ppw_rpm, e_idle, e_redline
+                ),
+                "torque_curve": generate_torque_curve_from_profile(
+                    e_ptq, e_ptq_rpm, e_ppw, e_ppw_rpm, e_idle, e_redline
+                ),  # legacy/reference field
                 "final_drive_ratio":   e_fdr,
                 "driveline_efficiency": e_de,
                 "tyre_size":           e_ts,
@@ -850,10 +909,7 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
 
     if _reset:
         _def = DEFAULT_VEHICLE_PROFILES[selected_vehicle]
-        st.session_state["vehicle_profiles"][selected_vehicle] = {
-            **_def,
-            "torque_curve": [tuple(pt) for pt in _def["torque_curve"]],
-        }
+        st.session_state["vehicle_profiles"][selected_vehicle] = enrich_vehicle_profile(selected_vehicle, _def)
         st.session_state[f"ev_ver_{vk}"] = _ver + 1
         st.success("✅ Reset to defaults.")
         st.rerun()
@@ -863,7 +919,10 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
         out = {}
         for _n, _p in st.session_state["vehicle_profiles"].items():
             _pc = dict(_p)
-            _pc["torque_curve"] = [list(pt) for pt in _pc["torque_curve"]]
+            if "torque_curve" in _pc:
+                _pc["torque_curve"] = [list(pt) for pt in _pc["torque_curve"]]
+            if "generated_torque_curve" in _pc:
+                _pc["generated_torque_curve"] = [list(pt) for pt in _pc["generated_torque_curve"]]
             out[_n] = _pc
         return json.dumps(out, indent=2)
 
@@ -1126,6 +1185,7 @@ rear_tyre_pressure   = vp["rear_tyre_pressure_kPa"]
 Cd_vehicle           = vp["Cd"]
 A_vehicle            = vp["frontal_area"]
 peak_power_kW        = vp["peak_power_kW"]
+active_torque_curve  = get_active_torque_curve(vp)
 driven_axle_type     = vp["driven_axle_type"]
 tyre_road_mu         = vp["tyre_road_friction_coefficient"]
 wheelbase_mm         = float(vp["wheelbase_mm"])
@@ -1221,7 +1281,7 @@ gear_rows_p1, best_idx_p1 = select_best_gear(
     tyre_radius_m        = tyre_radius,
     idle_rpm             = vp["idle_rpm"],
     redline_rpm          = vp["redline_rpm"],
-    torque_curve         = vp.get("torque_curve"),
+    torque_curve         = active_torque_curve,
     peak_power_W         = peak_power_kW * 1000.0,
     V_mps                = V,
     fallback_torque_Nm   = vp["peak_torque_Nm"],
@@ -1370,6 +1430,44 @@ with st.expander("Profile Summary", expanded=False):
         "loaded-radius correction. Contact patch values are engineering approximations."
     )
 
+
+# ─── GENERATED TORQUE CURVE ───────────────────────────────────────────────────
+
+with st.expander("Generated Torque Curve", expanded=False):
+    torque_curve_rows = []
+    for rpm, tq in active_torque_curve:
+        power_kW = tq * rpm * 2.0 * math.pi / 60.0 / 1000.0
+        torque_curve_rows.append({
+            "RPM": round(rpm, 0),
+            "Torque (Nm)": round(tq, 1),
+            "Power (kW)": round(power_kW, 1),
+        })
+    df_torque_curve = pd.DataFrame(torque_curve_rows)
+    st.caption(
+        "This estimated torque curve is generated automatically from peak torque, peak power, "
+        "their RPM values, idle RPM and redline RPM. It is used for gear selection and acceleration calculations."
+    )
+    st.dataframe(df_torque_curve, use_container_width=True, hide_index=True)
+
+    if len(df_torque_curve) >= 2:
+        fig_tc, ax_tc = plt.subplots(figsize=(8, 4))
+        ax_tc.plot(df_torque_curve["RPM"], df_torque_curve["Torque (Nm)"], marker="o", linewidth=2, label="Torque")
+        ax_tc.set_xlabel("Engine speed (RPM)")
+        ax_tc.set_ylabel("Torque (Nm)")
+        ax_tc.set_title("Generated Torque and Power Curve", fontweight="bold")
+        ax_tc.spines["top"].set_visible(False)
+        ax_tc.spines["right"].set_visible(False)
+
+        ax_pw = ax_tc.twinx()
+        ax_pw.plot(df_torque_curve["RPM"], df_torque_curve["Power (kW)"], marker="s", linestyle="--", linewidth=2, label="Power")
+        ax_pw.set_ylabel("Power (kW)")
+
+        lines_1, labels_1 = ax_tc.get_legend_handles_labels()
+        lines_2, labels_2 = ax_pw.get_legend_handles_labels()
+        ax_tc.legend(lines_1 + lines_2, labels_1 + labels_2, loc="best")
+        plt.tight_layout()
+        st.pyplot(fig_tc)
+        plt.close(fig_tc)
 
 # ─── VEHICLE AXLE LOAD TRANSFER ────────────────────────────────────────────────
 
@@ -1689,7 +1787,7 @@ for idx, v_kmh in enumerate(sim_speeds):
         tyre_radius_m        = tyre_radius,
         idle_rpm             = vp["idle_rpm"],
         redline_rpm          = vp["redline_rpm"],
-        torque_curve         = vp.get("torque_curve"),
+        torque_curve         = active_torque_curve,
         peak_power_W         = P_watts_p2,
         V_mps                = V_mps,
         fallback_torque_Nm   = vp["peak_torque_Nm"],
