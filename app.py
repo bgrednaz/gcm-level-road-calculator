@@ -187,9 +187,9 @@ DEFAULT_TRAILER_PROFILES = {
         "frontal_width_m": 2.40,
         "frontal_height_m": 1.80,
         "frontal_area_m2": 4.32,
-        "interpolation_points": [
+        "weight_profiles": [
             {
-                "label": "Light load",
+                "profile_name": "Light load",
                 "trailer_mass_kg": 1500.0,
                 "tow_ball_mass_kg": 150.0,
                 "front_left_tyre_load_kg": 337.5,
@@ -198,7 +198,7 @@ DEFAULT_TRAILER_PROFILES = {
                 "rear_right_tyre_load_kg": 337.5,
             },
             {
-                "label": "Balanced load",
+                "profile_name": "Balanced load",
                 "trailer_mass_kg": 2500.0,
                 "tow_ball_mass_kg": 250.0,
                 "front_left_tyre_load_kg": 562.5,
@@ -207,7 +207,7 @@ DEFAULT_TRAILER_PROFILES = {
                 "rear_right_tyre_load_kg": 562.5,
             },
             {
-                "label": "GCM test load",
+                "profile_name": "GCM test load",
                 "trailer_mass_kg": 3500.0,
                 "tow_ball_mass_kg": 350.0,
                 "front_left_tyre_load_kg": 787.5,
@@ -229,9 +229,9 @@ DEFAULT_TRAILER_PROFILES = {
         "frontal_width_m": 2.40,
         "frontal_height_m": 1.80,
         "frontal_area_m2": 4.32,
-        "interpolation_points": [
+        "weight_profiles": [
             {
-                "label": "Light load",
+                "profile_name": "Light load",
                 "trailer_mass_kg": 1500.0,
                 "tow_ball_mass_kg": 150.0,
                 "front_left_tyre_load_kg": 337.5,
@@ -240,7 +240,7 @@ DEFAULT_TRAILER_PROFILES = {
                 "rear_right_tyre_load_kg": 337.5,
             },
             {
-                "label": "Balanced load",
+                "profile_name": "Balanced load",
                 "trailer_mass_kg": 2500.0,
                 "tow_ball_mass_kg": 250.0,
                 "front_left_tyre_load_kg": 562.5,
@@ -249,7 +249,7 @@ DEFAULT_TRAILER_PROFILES = {
                 "rear_right_tyre_load_kg": 562.5,
             },
             {
-                "label": "GCM test load",
+                "profile_name": "GCM test load",
                 "trailer_mass_kg": 3500.0,
                 "tow_ball_mass_kg": 350.0,
                 "front_left_tyre_load_kg": 787.5,
@@ -263,7 +263,7 @@ DEFAULT_TRAILER_PROFILES = {
 
 
 def enrich_trailer_profile(name, prof):
-    """Normalise older trailer profile dictionaries into the current schema."""
+    """Normalise older trailer profile dictionaries into the current named weight-profile schema."""
     t = dict(prof)
 
     # Convert older keys if present.
@@ -279,21 +279,79 @@ def enrich_trailer_profile(name, prof):
     t.setdefault("frontal_height_m", t.get("frontal_height", t.get("frontal_height_m", 1.80)))
     t.setdefault("frontal_area_m2", t.get("frontal_area_m2", t["frontal_width_m"] * t["frontal_height_m"]))
 
-    if "interpolation_points" not in t:
-        m = float(t.get("trailer_mass", 3500.0))
-        ball = float(t.get("tow_ball_mass", 0.10 * m))
-        each = max(0.0, (m - ball) / 4.0)
-        t["interpolation_points"] = [
-            {
-                "label": "Profile load",
+    # Backwards compatibility: convert old interpolation_points to named weight_profiles.
+    if "weight_profiles" not in t:
+        if "interpolation_points" in t and t["interpolation_points"]:
+            t["weight_profiles"] = []
+            for i, pt in enumerate(t["interpolation_points"]):
+                t["weight_profiles"].append({
+                    "profile_name": pt.get("profile_name", pt.get("label", f"Weight profile {i + 1}")),
+                    "trailer_mass_kg": float(pt.get("trailer_mass_kg", 0.0)),
+                    "tow_ball_mass_kg": float(pt.get("tow_ball_mass_kg", 0.0)),
+                    "front_left_tyre_load_kg": float(pt.get("front_left_tyre_load_kg", 0.0)),
+                    "front_right_tyre_load_kg": float(pt.get("front_right_tyre_load_kg", 0.0)),
+                    "rear_left_tyre_load_kg": float(pt.get("rear_left_tyre_load_kg", 0.0)),
+                    "rear_right_tyre_load_kg": float(pt.get("rear_right_tyre_load_kg", 0.0)),
+                })
+        else:
+            m = float(t.get("trailer_mass", 3500.0))
+            ball = float(t.get("tow_ball_mass", 0.10 * m))
+            each = max(0.0, (m - ball) / 4.0)
+            t["weight_profiles"] = [{
+                "profile_name": "Profile load",
                 "trailer_mass_kg": m,
                 "tow_ball_mass_kg": ball,
                 "front_left_tyre_load_kg": each,
                 "front_right_tyre_load_kg": each,
                 "rear_left_tyre_load_kg": each,
                 "rear_right_tyre_load_kg": each,
-            }
+            }]
+
+    # Clean, sort and normalise weight profiles.
+    clean_profiles = []
+    for i, wp in enumerate(t.get("weight_profiles", [])):
+        try:
+            clean_profiles.append({
+                "profile_name": str(wp.get("profile_name", f"Weight profile {i + 1}")),
+                "trailer_mass_kg": float(wp.get("trailer_mass_kg", 0.0)),
+                "tow_ball_mass_kg": float(wp.get("tow_ball_mass_kg", 0.0)),
+                "front_left_tyre_load_kg": float(wp.get("front_left_tyre_load_kg", 0.0)),
+                "front_right_tyre_load_kg": float(wp.get("front_right_tyre_load_kg", 0.0)),
+                "rear_left_tyre_load_kg": float(wp.get("rear_left_tyre_load_kg", 0.0)),
+                "rear_right_tyre_load_kg": float(wp.get("rear_right_tyre_load_kg", 0.0)),
+            })
+        except (TypeError, ValueError):
+            continue
+
+    if len(clean_profiles) < 2:
+        base_mass = clean_profiles[0]["trailer_mass_kg"] if clean_profiles else 1500.0
+        base_ball = clean_profiles[0]["tow_ball_mass_kg"] if clean_profiles else 0.10 * base_mass
+        base_each = max(0.0, (base_mass - base_ball) / 4.0)
+        clean_profiles = [
+            {
+                "profile_name": "Light load",
+                "trailer_mass_kg": base_mass,
+                "tow_ball_mass_kg": base_ball,
+                "front_left_tyre_load_kg": base_each,
+                "front_right_tyre_load_kg": base_each,
+                "rear_left_tyre_load_kg": base_each,
+                "rear_right_tyre_load_kg": base_each,
+            },
+            {
+                "profile_name": "GCM test load",
+                "trailer_mass_kg": base_mass + 1000.0,
+                "tow_ball_mass_kg": 0.10 * (base_mass + 1000.0),
+                "front_left_tyre_load_kg": max(0.0, ((base_mass + 1000.0) - 0.10 * (base_mass + 1000.0)) / 4.0),
+                "front_right_tyre_load_kg": max(0.0, ((base_mass + 1000.0) - 0.10 * (base_mass + 1000.0)) / 4.0),
+                "rear_left_tyre_load_kg": max(0.0, ((base_mass + 1000.0) - 0.10 * (base_mass + 1000.0)) / 4.0),
+                "rear_right_tyre_load_kg": max(0.0, ((base_mass + 1000.0) - 0.10 * (base_mass + 1000.0)) / 4.0),
+            },
         ]
+
+    t["weight_profiles"] = sorted(clean_profiles, key=lambda p: p["trailer_mass_kg"])
+
+    # Keep a legacy interpolation_points alias for older downloaded JSON compatibility.
+    t["interpolation_points"] = [dict(wp) for wp in t["weight_profiles"]]
 
     # Keep legacy keys for older sections or downloaded JSON compatibility.
     t["num_axles"] = int(t["number_of_axles"])
@@ -558,8 +616,8 @@ def _linear_interp_extrap(x, xs, ys):
 
 
 def interpolate_trailer_profile(tp, trailer_mass_kg):
-    """Interpolate towball and wheel loads from trailer profile loading points."""
-    points = sorted(tp.get("interpolation_points", []), key=lambda p: p["trailer_mass_kg"])
+    """Interpolate towball and wheel loads from named trailer weight profiles."""
+    points = sorted(tp.get("weight_profiles", tp.get("interpolation_points", [])), key=lambda p: p["trailer_mass_kg"])
     if not points:
         ball = 0.10 * trailer_mass_kg
         each = max(0.0, (trailer_mass_kg - ball) / 4.0)
@@ -585,6 +643,26 @@ def interpolate_trailer_profile(tp, trailer_mass_kg):
 
     extrapolated = trailer_mass_kg < min(xs) or trailer_mass_kg > max(xs)
     return out, extrapolated, points
+
+
+def build_new_weight_profile(existing_profiles):
+    """Create a sensible new trailer weight profile based on the current highest mass."""
+    profiles = sorted(existing_profiles, key=lambda p: float(p.get("trailer_mass_kg", 0.0)))
+    if profiles:
+        new_mass = float(profiles[-1].get("trailer_mass_kg", 0.0)) + 500.0
+    else:
+        new_mass = 0.0
+    new_ball = 0.10 * new_mass
+    new_each = max(0.0, (new_mass - new_ball) / 4.0)
+    return {
+        "profile_name": "New weight profile",
+        "trailer_mass_kg": new_mass,
+        "tow_ball_mass_kg": new_ball,
+        "front_left_tyre_load_kg": new_each,
+        "front_right_tyre_load_kg": new_each,
+        "rear_left_tyre_load_kg": new_each,
+        "rear_right_tyre_load_kg": new_each,
+    }
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
 
@@ -811,9 +889,11 @@ _tver = st.session_state.get(f"et_ver_{tk}", 0)
 _tkv = f"{tk}_v{_tver}"
 
 # Normal trailer input: only trailer mass is entered by the user.
+_weight_profiles_default = sorted(tp.get("weight_profiles", tp.get("interpolation_points", [])), key=lambda p: p["trailer_mass_kg"])
+_trailer_mass_default = float(_weight_profiles_default[-1]["trailer_mass_kg"]) if _weight_profiles_default else 3500.0
 m_trailer = st.sidebar.number_input(
     "Trailer mass / trailer weight (kg)",
-    value=float(tp.get("interpolation_points", [{"trailer_mass_kg": 3500.0}])[-1]["trailer_mass_kg"]),
+    value=_trailer_mass_default,
     min_value=0.0,
     step=50.0,
     key=f"tm_{tk}",
@@ -883,17 +963,53 @@ with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
     et_fh = st.number_input("Frontal height (m)", value=float(tp["frontal_height_m"]), min_value=0.1, step=0.05, format="%.2f", key=f"et_fh_{_tkv}")
     et_fa = st.number_input("Frontal area (m²)", value=float(tp.get("frontal_area_m2", et_fw * et_fh)), min_value=0.1, step=0.05, format="%.2f", key=f"et_fa_{_tkv}")
 
-    st.markdown("**Interpolation Points**")
-    _pts = sorted(tp.get("interpolation_points", []), key=lambda p: p["trailer_mass_kg"])
-    def _join_vals(key):
-        return ", ".join(f"{float(pt[key]):.4g}" for pt in _pts)
+    st.markdown("**Trailer Weight Profiles**")
+    st.caption(
+        "Each row is one measured or estimated trailer loading condition. "
+        "The app interpolates towball mass and wheel loads from these rows based on the entered trailer mass."
+    )
 
-    et_masses = st.text_input("Trailer masses (kg)", value=_join_vals("trailer_mass_kg"), key=f"et_masses_{_tkv}")
-    et_balls = st.text_input("Towball masses (kg)", value=_join_vals("tow_ball_mass_kg"), key=f"et_balls_{_tkv}")
-    et_fl = st.text_input("Front left tyre loads (kg)", value=_join_vals("front_left_tyre_load_kg"), key=f"et_fl_{_tkv}")
-    et_fr = st.text_input("Front right tyre loads (kg)", value=_join_vals("front_right_tyre_load_kg"), key=f"et_fr_{_tkv}")
-    et_rl = st.text_input("Rear left tyre loads (kg)", value=_join_vals("rear_left_tyre_load_kg"), key=f"et_rl_{_tkv}")
-    et_rr = st.text_input("Rear right tyre loads (kg)", value=_join_vals("rear_right_tyre_load_kg"), key=f"et_rr_{_tkv}")
+    _wp_state_key = f"trailer_weight_profiles_editor_{_tkv}"
+    if _wp_state_key not in st.session_state:
+        st.session_state[_wp_state_key] = [
+            dict(wp) for wp in sorted(tp.get("weight_profiles", tp.get("interpolation_points", [])), key=lambda p: p["trailer_mass_kg"])
+        ]
+
+    if st.button("Add Weight Profile", key=f"add_wp_{_tkv}"):
+        st.session_state[_wp_state_key].append(build_new_weight_profile(st.session_state[_wp_state_key]))
+        st.rerun()
+
+    _wp_df_source = pd.DataFrame(st.session_state[_wp_state_key])
+    if _wp_df_source.empty:
+        _wp_df_source = pd.DataFrame([build_new_weight_profile([]), build_new_weight_profile([build_new_weight_profile([])])])
+
+    _wp_df_source = _wp_df_source[[
+        "profile_name",
+        "trailer_mass_kg",
+        "tow_ball_mass_kg",
+        "front_left_tyre_load_kg",
+        "front_right_tyre_load_kg",
+        "rear_left_tyre_load_kg",
+        "rear_right_tyre_load_kg",
+    ]]
+
+    edited_weight_profiles_df = st.data_editor(
+        _wp_df_source,
+        key=f"wp_editor_{_tkv}",
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "profile_name": st.column_config.TextColumn("Profile name"),
+            "trailer_mass_kg": st.column_config.NumberColumn("Trailer mass (kg)", min_value=0.0, step=50.0, format="%.1f"),
+            "tow_ball_mass_kg": st.column_config.NumberColumn("Towball mass (kg)", min_value=0.0, step=10.0, format="%.1f"),
+            "front_left_tyre_load_kg": st.column_config.NumberColumn("Front left tyre load (kg)", min_value=0.0, step=10.0, format="%.1f"),
+            "front_right_tyre_load_kg": st.column_config.NumberColumn("Front right tyre load (kg)", min_value=0.0, step=10.0, format="%.1f"),
+            "rear_left_tyre_load_kg": st.column_config.NumberColumn("Rear left tyre load (kg)", min_value=0.0, step=10.0, format="%.1f"),
+            "rear_right_tyre_load_kg": st.column_config.NumberColumn("Rear right tyre load (kg)", min_value=0.0, step=10.0, format="%.1f"),
+        },
+    )
+    st.caption("Use Add Weight Profile to append a row. Rows can also be edited directly in the table. Keep at least two rows for interpolation.")
 
     _ta, _tb = st.columns(2)
     _t_apply = _ta.button("Apply Trailer Profile Changes", key=f"t_apply_{tk}")
@@ -901,36 +1017,49 @@ with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
 
     if _t_apply:
         _errors = []
+        _new_weight_profiles = []
         try:
-            _masses = [float(x.strip()) for x in et_masses.split(",") if x.strip()]
-            _balls = [float(x.strip()) for x in et_balls.split(",") if x.strip()]
-            _fls = [float(x.strip()) for x in et_fl.split(",") if x.strip()]
-            _frs = [float(x.strip()) for x in et_fr.split(",") if x.strip()]
-            _rls = [float(x.strip()) for x in et_rl.split(",") if x.strip()]
-            _rrs = [float(x.strip()) for x in et_rr.split(",") if x.strip()]
-            counts = {len(_masses), len(_balls), len(_fls), len(_frs), len(_rls), len(_rrs)}
-            if len(counts) != 1:
-                _errors.append("All interpolation point arrays must have the same number of values.")
-            if len(_masses) < 1:
-                _errors.append("At least one interpolation point is required.")
-        except ValueError as _exc:
+            _wp_df = edited_weight_profiles_df.copy()
+            _wp_df = _wp_df.dropna(how="all")
+            for i, row in _wp_df.iterrows():
+                profile_name = str(row.get("profile_name", "")).strip() or f"Weight profile {len(_new_weight_profiles) + 1}"
+                wp = {
+                    "profile_name": profile_name,
+                    "trailer_mass_kg": float(row.get("trailer_mass_kg", 0.0)),
+                    "tow_ball_mass_kg": float(row.get("tow_ball_mass_kg", 0.0)),
+                    "front_left_tyre_load_kg": float(row.get("front_left_tyre_load_kg", 0.0)),
+                    "front_right_tyre_load_kg": float(row.get("front_right_tyre_load_kg", 0.0)),
+                    "rear_left_tyre_load_kg": float(row.get("rear_left_tyre_load_kg", 0.0)),
+                    "rear_right_tyre_load_kg": float(row.get("rear_right_tyre_load_kg", 0.0)),
+                }
+                _new_weight_profiles.append(wp)
+
+            if len(_new_weight_profiles) < 2:
+                _errors.append("At least two trailer weight profiles are required for interpolation.")
+
+            _masses_check = [wp["trailer_mass_kg"] for wp in _new_weight_profiles]
+            if len(_masses_check) != len(set(_masses_check)):
+                _errors.append("Trailer mass values must be unique across weight profiles.")
+
+            for wp in _new_weight_profiles:
+                for _key in [
+                    "trailer_mass_kg",
+                    "tow_ball_mass_kg",
+                    "front_left_tyre_load_kg",
+                    "front_right_tyre_load_kg",
+                    "rear_left_tyre_load_kg",
+                    "rear_right_tyre_load_kg",
+                ]:
+                    if wp[_key] < 0:
+                        _errors.append(f"{wp['profile_name']}: {_key} cannot be negative.")
+        except (TypeError, ValueError) as _exc:
             _errors.append(f"Parse error: {_exc}")
 
         if _errors:
             for _e in _errors:
                 st.error(_e)
         else:
-            _new_points = []
-            for i, mass in enumerate(_masses):
-                _new_points.append({
-                    "label": f"Point {i + 1}",
-                    "trailer_mass_kg": mass,
-                    "tow_ball_mass_kg": _balls[i],
-                    "front_left_tyre_load_kg": _fls[i],
-                    "front_right_tyre_load_kg": _frs[i],
-                    "rear_left_tyre_load_kg": _rls[i],
-                    "rear_right_tyre_load_kg": _rrs[i],
-                })
+            _new_weight_profiles = sorted(_new_weight_profiles, key=lambda p: p["trailer_mass_kg"])
             st.session_state["trailer_profiles"][selected_trailer] = enrich_trailer_profile(selected_trailer, {
                 "profile_name": selected_trailer,
                 "number_of_axles": int(et_axles),
@@ -943,8 +1072,10 @@ with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
                 "frontal_width_m": et_fw,
                 "frontal_height_m": et_fh,
                 "frontal_area_m2": et_fa,
-                "interpolation_points": _new_points,
+                "weight_profiles": _new_weight_profiles,
             })
+            if _wp_state_key in st.session_state:
+                del st.session_state[_wp_state_key]
             st.session_state[f"et_ver_{tk}"] = _tver + 1
             st.success("✅ Trailer profile updated for this session.")
             st.rerun()
