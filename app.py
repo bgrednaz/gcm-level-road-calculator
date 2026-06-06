@@ -278,6 +278,10 @@ def enrich_trailer_profile(name, prof):
     t.setdefault("frontal_width_m", t.get("frontal_width", t.get("frontal_width_m", 2.40)))
     t.setdefault("frontal_height_m", t.get("frontal_height", t.get("frontal_height_m", 1.80)))
     t.setdefault("frontal_area_m2", t.get("frontal_area_m2", t["frontal_width_m"] * t["frontal_height_m"]))
+    t.setdefault("sail_width_m", t.get("frontal_width_m", 2.40))
+    t.setdefault("sail_height_m", t.get("frontal_height_m", 1.80))
+    t.setdefault("hitch_to_sail_distance_m", 4.43)
+    t.setdefault("trailer_sail_Cd", t.get("trailer_Cd", 0.55))
 
     # Backwards compatibility: convert old interpolation_points to named weight_profiles.
     if "weight_profiles" not in t:
@@ -360,6 +364,10 @@ def enrich_trailer_profile(name, prof):
     t["Cd"] = float(t["trailer_Cd"])
     t["frontal_width"] = float(t["frontal_width_m"])
     t["frontal_height"] = float(t["frontal_height_m"])
+    t["sail_width_m"] = float(t["sail_width_m"])
+    t["sail_height_m"] = float(t["sail_height_m"])
+    t["hitch_to_sail_distance_m"] = float(t["hitch_to_sail_distance_m"])
+    t["trailer_sail_Cd"] = float(t["trailer_sail_Cd"])
     return t
 
 DEFAULT_TRAILER_PROFILES = {
@@ -458,6 +466,10 @@ def enrich_vehicle_profile(name, prof):
     p.setdefault("rear_left_base_tyre_load_kg", rear_each)
     p.setdefault("rear_right_base_tyre_load_kg", rear_each)
     p.setdefault("driven_axle_type", "AWD")
+    _default_body_type = "SUV" if name == "Boxy Wagon 4WD" else "Ute"
+    p.setdefault("vehicle_body_type", _default_body_type)
+    if p.get("vehicle_body_type") not in VEHICLE_BODY_TYPES:
+        p["vehicle_body_type"] = _default_body_type
 
     # Normalise legacy driven-axle labels from older saved profiles.
     _drive_map = {
@@ -832,6 +844,11 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
 
     # ── Aerodynamics ──
     st.markdown("**Aerodynamics**")
+    e_body_type = st.selectbox(
+        "Vehicle body type", VEHICLE_BODY_TYPES,
+        index=VEHICLE_BODY_TYPES.index(vp.get("vehicle_body_type", "Ute")),
+        key=f"e_body_type_{_vkv}",
+    )
     e_cd = st.number_input("Vehicle Cd",             value=float(vp["Cd"]),           min_value=0.0, step=0.01, format="%.2f", key=f"e_cd_{_vkv}")
     e_fa = st.number_input("Frontal area (m²)",      value=float(vp["frontal_area"]), min_value=0.1, step=0.1,  format="%.2f", key=f"e_fa_{_vkv}")
 
@@ -900,6 +917,7 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
                 "gvm_limit_kg":        e_gvm_limit,
                 "driven_axle_type":    e_drive,
                 "tyre_road_friction_coefficient": e_mu,
+                "vehicle_body_type":   e_body_type,
                 "Cd":                  e_cd,
                 "frontal_area":        e_fa,
                 "gear_ratios":         _new_gr,
@@ -975,6 +993,22 @@ Cd_trailer = float(tp["trailer_Cd"])
 frontal_width = float(tp["frontal_width_m"])
 frontal_height = float(tp["frontal_height_m"])
 A_trailer = float(tp.get("frontal_area_m2", frontal_width * frontal_height))
+trailer_sail_width = float(tp.get("sail_width_m", frontal_width))
+trailer_sail_height = float(tp.get("sail_height_m", frontal_height))
+trailer_sail_area = trailer_sail_width * trailer_sail_height
+hitch_to_sail_distance = float(tp.get("hitch_to_sail_distance_m", 4.43))
+trailer_sail_Cd = float(tp.get("trailer_sail_Cd", Cd_trailer))
+
+if vehicle_body_type == "SUV":
+    initial_shielding_fraction = 0.45
+else:
+    initial_shielding_fraction = 0.30
+wake_recovery_length_m = 6.0
+shielding_fraction = initial_shielding_fraction * math.exp(
+    -hitch_to_sail_distance / wake_recovery_length_m
+)
+shielding_fraction = min(max(shielding_fraction, 0.0), 0.80)
+trailer_dynamic_pressure_factor = 1.0 - shielding_fraction
 
 if trailer_extrapolated:
     st.sidebar.warning(
@@ -1022,6 +1056,12 @@ with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
     et_fw = st.number_input("Frontal width (m)", value=float(tp["frontal_width_m"]), min_value=0.1, step=0.05, format="%.2f", key=f"et_fw_{_tkv}")
     et_fh = st.number_input("Frontal height (m)", value=float(tp["frontal_height_m"]), min_value=0.1, step=0.05, format="%.2f", key=f"et_fh_{_tkv}")
     et_fa = st.number_input("Frontal area (m²)", value=float(tp.get("frontal_area_m2", et_fw * et_fh)), min_value=0.1, step=0.05, format="%.2f", key=f"et_fa_{_tkv}")
+    st.markdown("**Trailer Sail / Wake Geometry**")
+    et_sail_cd = st.number_input("Trailer sail Cd", value=float(tp.get("trailer_sail_Cd", tp["trailer_Cd"])), min_value=0.0, step=0.01, format="%.2f", key=f"et_sail_cd_{_tkv}")
+    et_sail_w = st.number_input("Sail width (m)", value=float(tp.get("sail_width_m", tp["frontal_width_m"])), min_value=0.1, step=0.05, format="%.2f", key=f"et_sail_w_{_tkv}")
+    et_sail_h = st.number_input("Sail height (m)", value=float(tp.get("sail_height_m", tp["frontal_height_m"])), min_value=0.1, step=0.05, format="%.2f", key=f"et_sail_h_{_tkv}")
+    et_hitch_sail = st.number_input("Hitch to sail distance (m)", value=float(tp.get("hitch_to_sail_distance_m", 4.43)), min_value=0.0, step=0.05, format="%.2f", key=f"et_hitch_sail_{_tkv}")
+    st.caption(f"Calculated sail area: {et_sail_w * et_sail_h:.2f} m²")
 
     st.markdown("**Trailer Weight Profiles**")
     st.caption(
@@ -1132,6 +1172,10 @@ with st.sidebar.expander("✏️ Edit Trailer Profiles", expanded=False):
                 "frontal_width_m": et_fw,
                 "frontal_height_m": et_fh,
                 "frontal_area_m2": et_fa,
+                "sail_width_m": et_sail_w,
+                "sail_height_m": et_sail_h,
+                "hitch_to_sail_distance_m": et_hitch_sail,
+                "trailer_sail_Cd": et_sail_cd,
                 "weight_profiles": _new_weight_profiles,
             })
             if _wp_state_key in st.session_state:
@@ -1219,6 +1263,7 @@ peak_power_kW        = vp["peak_power_kW"]
 active_torque_curve  = get_active_torque_curve(vp)
 driven_axle_type     = vp["driven_axle_type"]
 tyre_road_mu         = vp["tyre_road_friction_coefficient"]
+vehicle_body_type    = vp.get("vehicle_body_type", "Ute")
 wheelbase_mm         = float(vp["wheelbase_mm"])
 rear_axle_to_towball_mm = float(vp["rear_axle_to_towball_mm"])
 front_axle_limit_kg  = float(vp["front_axle_limit_kg"])
@@ -1302,8 +1347,15 @@ F_rr_vehicle = (Crr_vehicle_front * front_loaded_N) + (Crr_vehicle_rear * rear_l
 F_rr_trailer = Crr_trailer * trailer_tyre_supported_mass * g
 
 relative_air_speed_p1_mps = V + average_wind_mps
+effective_trailer_air_speed_p1_mps = relative_air_speed_p1_mps * math.sqrt(trailer_dynamic_pressure_factor)
 F_aero_vehicle = 0.5 * air_density * Cd_vehicle * A_vehicle * relative_air_speed_p1_mps ** 2
-F_aero_trailer = 0.5 * air_density * Cd_trailer * A_trailer * relative_air_speed_p1_mps ** 2
+F_aero_trailer_unshielded = 0.5 * air_density * trailer_sail_Cd * trailer_sail_area * relative_air_speed_p1_mps ** 2
+F_aero_trailer = 0.5 * air_density * trailer_sail_Cd * trailer_sail_area * effective_trailer_air_speed_p1_mps ** 2
+trailer_drag_reduction_N = F_aero_trailer_unshielded - F_aero_trailer
+trailer_drag_reduction_percent = (
+    trailer_drag_reduction_N / F_aero_trailer_unshielded * 100.0
+    if F_aero_trailer_unshielded > 0 else 0.0
+)
 
 F_resistance_total = F_rr_vehicle + F_rr_trailer + F_aero_vehicle + F_aero_trailer
 
@@ -1463,6 +1515,7 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Driven axle: {driven_axle_type}  |  μ: {tyre_road_mu:.2f}")
         st.write(f"Wheelbase: {wheelbase_mm:.0f} mm  |  Rear axle to towball: {rear_axle_to_towball_mm:.0f} mm")
         st.write(f"Axle limits F/R: {front_axle_limit_kg:.0f} / {rear_axle_limit_kg:.0f} kg  |  GVM: {gvm_limit_kg:.0f} kg")
+        st.write(f"Body type: {vehicle_body_type}")
         st.write(f"Vehicle Cd: {Cd_vehicle:.2f}  |  Frontal area: {A_vehicle:.2f} m²")
         st.write(f"Phase 1 Crr: {Crr_vehicle:.5f}  |  Phase 2A Crr: {Crr_veh_p2:.5f}")
         st.write(f"Gear ratios: {vp['gear_ratios']}")
@@ -1475,7 +1528,9 @@ with st.expander("Profile Summary", expanded=False):
         st.write(f"Unloaded r: {trl_unloaded_r:.3f} m  |  Loaded r: {trailer_tyre_radius:.3f} m  |  Deflection: {trl_deflection*1000:.1f} mm")
         st.write(f"Interpolated tyre-supported mass: {trailer_tyre_supported_mass:,.1f} kg")
         st.write(f"Average contact patch: {trl_cp_area*10000:.1f} cm²  ×  {trl_cp_len*100:.1f} cm")
-        st.write(f"Trailer Cd: {Cd_trailer:.2f}  |  Frontal area: {A_trailer:.2f} m²  ({frontal_width:.2f} × {frontal_height:.2f} m)")
+        st.write(f"Trailer base Cd: {Cd_trailer:.2f}  |  Base frontal area: {A_trailer:.2f} m²")
+        st.write(f"Sail: {trailer_sail_width:.2f} × {trailer_sail_height:.2f} m = {trailer_sail_area:.2f} m²  |  Sail Cd: {trailer_sail_Cd:.2f}")
+        st.write(f"Hitch to sail: {hitch_to_sail_distance:.2f} m  |  Shielding: {shielding_fraction*100:.1f}%")
         st.write(f"Phase 1 Crr: {Crr_trailer:.5f}  |  Phase 2A Crr: {Crr_trl_p2:.5f}")
     st.markdown("---")
     st.markdown("**Combination**")
@@ -1489,6 +1544,43 @@ with st.expander("Profile Summary", expanded=False):
         "loaded-radius correction. Contact patch values are engineering approximations."
     )
 
+
+# ─── VEHICLE-TO-TRAILER AERODYNAMIC INTERACTION ─────────────────────────────
+
+with st.expander("Vehicle-to-Trailer Aerodynamic Interaction", expanded=False):
+    _ai1, _ai2, _ai3 = st.columns(3)
+    _ai1.metric("Vehicle body type", vehicle_body_type)
+    _ai2.metric("Shielding at sail", f"{shielding_fraction * 100:.1f}%")
+    _ai3.metric("Dynamic-pressure factor", f"{trailer_dynamic_pressure_factor:.3f}")
+
+    aero_interaction_rows = [
+        ["Trailer sail width", trailer_sail_width, "m"],
+        ["Trailer sail height", trailer_sail_height, "m"],
+        ["Trailer sail area", trailer_sail_area, "m²"],
+        ["Hitch-to-sail distance", hitch_to_sail_distance, "m"],
+        ["Initial shielding fraction", initial_shielding_fraction, "fraction"],
+        ["Wake recovery length", wake_recovery_length_m, "m"],
+        ["Calculated shielding fraction", shielding_fraction, "fraction"],
+        ["Trailer dynamic-pressure factor", trailer_dynamic_pressure_factor, "factor"],
+        ["Road speed", speed_kmh, "km/h"],
+        ["Undisturbed relative airspeed", relative_air_speed_p1_mps, "m/s"],
+        ["Effective trailer airspeed", effective_trailer_air_speed_p1_mps, "m/s"],
+        ["Unshielded trailer drag", F_aero_trailer_unshielded, "N"],
+        ["Wake-shielded trailer drag", F_aero_trailer, "N"],
+        ["Trailer drag reduction", trailer_drag_reduction_N, "N"],
+        ["Trailer drag reduction", trailer_drag_reduction_percent, "%"],
+    ]
+    st.dataframe(
+        pd.DataFrame(aero_interaction_rows, columns=["Parameter", "Value", "Units"]).round({"Value": 3}),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "The trailer wake correction is a first-order engineering estimate. SUV profiles "
+        "apply greater initial shielding than Ute profiles. Wake shielding decreases as the "
+        "hitch-to-sail distance increases. The model does not yet include CFD-derived wake "
+        "shape, crosswind yaw, trailer width overlap, vertical overlap or turbulence intensity."
+    )
 
 # ─── GENERATED TORQUE CURVE ───────────────────────────────────────────────────
 
@@ -1742,7 +1834,9 @@ _fs_data = {
         "Vehicle Rolling Resistance",
         "Trailer Rolling Resistance",
         "Vehicle Aerodynamic Drag",
-        "Trailer Aerodynamic Drag",
+        "Unshielded Trailer Aerodynamic Drag",
+        "Wake-Shielded Trailer Aerodynamic Drag",
+        "Trailer Wake Drag Reduction",
         "Total Resistance",
         "Engine-Limited Tractive Force",
         "Traction Limit",
@@ -1752,14 +1846,16 @@ _fs_data = {
     ],
     "Value (N)": [
         round(F_rr_vehicle, 1), round(F_rr_trailer, 1),
-        round(F_aero_vehicle, 1), round(F_aero_trailer, 1),
+        round(F_aero_vehicle, 1), round(F_aero_trailer_unshielded, 1),
+        round(F_aero_trailer, 1), round(trailer_drag_reduction_N, 1),
         round(F_resistance_total, 1), round(F_engine_available, 1),
         round(F_traction_limit, 1), round(F_available, 1),
         round(F_net, 1), round(F_hitch, 1),
     ],
     "Value (kN)": [
         round(F_rr_vehicle / 1000, 3), round(F_rr_trailer / 1000, 3),
-        round(F_aero_vehicle / 1000, 3), round(F_aero_trailer / 1000, 3),
+        round(F_aero_vehicle / 1000, 3), round(F_aero_trailer_unshielded / 1000, 3),
+        round(F_aero_trailer / 1000, 3), round(trailer_drag_reduction_N / 1000, 3),
         round(F_resistance_total / 1000, 3), round(F_engine_available / 1000, 3),
         round(F_traction_limit / 1000, 3), round(F_available / 1000, 3),
         round(F_net / 1000, 3), round(F_hitch / 1000, 3),
@@ -1771,7 +1867,7 @@ st.dataframe(pd.DataFrame(_fs_data), use_container_width=True, hide_index=True)
 
 st.subheader("Resistance Force Breakdown")
 _cats   = ["Vehicle\nRolling Resistance", "Trailer\nRolling Resistance",
-           "Vehicle\nAero Drag", "Trailer\nAero Drag"]
+           "Vehicle\nAero Drag", "Wake-Shielded Trailer\nAero Drag"]
 _vals   = [F_rr_vehicle, F_rr_trailer, F_aero_vehicle, F_aero_trailer]
 _colors = ["#1976D2", "#64B5F6", "#E64A19", "#FF8A65"]
 
@@ -1837,9 +1933,11 @@ def run_acceleration_simulation(wind_mps, case_name):
     for idx, v_kmh in enumerate(sim_speeds):
         road_speed_mps = v_kmh / 3.6
         relative_air_speed_mps = road_speed_mps + wind_mps
+        effective_trailer_air_speed_mps = relative_air_speed_mps * math.sqrt(trailer_dynamic_pressure_factor)
 
         F_aero_veh = 0.5 * air_density * Cd_vehicle * A_vehicle * relative_air_speed_mps ** 2
-        F_aero_trl = 0.5 * air_density * Cd_trailer * A_trailer * relative_air_speed_mps ** 2
+        F_aero_trl_unshielded = 0.5 * air_density * trailer_sail_Cd * trailer_sail_area * relative_air_speed_mps ** 2
+        F_aero_trl = 0.5 * air_density * trailer_sail_Cd * trailer_sail_area * effective_trailer_air_speed_mps ** 2
         F_res = F_rr_veh_p2 + F_rr_trl_p2 + F_aero_veh + F_aero_trl
 
         g_rows, b_idx = select_best_gear(
@@ -1874,8 +1972,11 @@ def run_acceleration_simulation(wind_mps, case_name):
             "Case": case_name,
             "Road Speed (km/h)": round(v_kmh, 2),
             "Wind Speed (m/s)": round(wind_mps, 2),
-            "Relative Air Speed (km/h)": round(relative_air_speed_mps * 3.6, 2),
+            "Undisturbed Relative Air Speed (km/h)": round(relative_air_speed_mps * 3.6, 2),
+            "Effective Trailer Air Speed (km/h)": round(effective_trailer_air_speed_mps * 3.6, 2),
             "Air Density (kg/m³)": round(air_density, 4),
+            "Shielding Fraction": round(shielding_fraction, 4),
+            "Trailer Dynamic-Pressure Factor": round(trailer_dynamic_pressure_factor, 4),
             "Gear": gear,
             "F_engine_available (N)": round(F_engine, 1),
             "F_traction_limit (N)": round(F_traction_limit, 1),
@@ -1884,7 +1985,8 @@ def run_acceleration_simulation(wind_mps, case_name):
             "F_rr Vehicle (N)": round(F_rr_veh_p2, 1),
             "F_rr Trailer (N)": round(F_rr_trl_p2, 1),
             "F_aero Vehicle (N)": round(F_aero_veh, 1),
-            "F_aero Trailer (N)": round(F_aero_trl, 1),
+            "F_aero Trailer Unshielded (N)": round(F_aero_trl_unshielded, 1),
+            "F_aero Trailer Wake-Shielded (N)": round(F_aero_trl, 1),
             "F_resistance (N)": round(F_res, 1),
             "F_net (N)": round(F_net_sim, 1),
             "Acceleration (m/s²)": round(a_sim, 4),
@@ -2032,6 +2134,7 @@ else:
 st.caption(
     "Temperature affects aerodynamic resistance through calculated air density. Average wind "
     "represents expected conditions, while maximum wind represents a worst-case steady headwind. "
-    "Wind direction, crosswind, yaw and gust duration are not yet modelled."
+    "Trailer aerodynamic drag includes the first-order vehicle wake-shielding correction. "
+    "Wind direction, crosswind, yaw, gust duration and CFD-derived wake shape are not yet modelled."
 )
 
