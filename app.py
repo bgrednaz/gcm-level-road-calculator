@@ -1162,10 +1162,42 @@ st.sidebar.divider()
 
 # ── Environmental & Operating Conditions ─────────────────────────────────────────
 
-st.sidebar.subheader("Environmental")
-air_density = st.sidebar.number_input(
-    "Air density (kg/m³)", value=1.225, min_value=0.1, step=0.001, format="%.3f"
+st.sidebar.subheader("Environmental Conditions")
+ambient_temperature_C = st.sidebar.number_input(
+    "Ambient temperature (°C)", value=20.0, step=1.0, format="%.1f"
 )
+average_wind_kmh = st.sidebar.number_input(
+    "Average wind speed (km/h)", value=0.0, min_value=0.0, step=1.0, format="%.1f"
+)
+maximum_wind_kmh = st.sidebar.number_input(
+    "Maximum wind speed (km/h)", value=0.0, min_value=0.0, step=1.0, format="%.1f"
+)
+st.sidebar.caption(
+    "Average wind is used for the expected acceleration result. Maximum wind is used "
+    "for the worst-case acceleration result. Both are currently treated as direct headwinds."
+)
+
+standard_pressure_Pa = 101325.0
+temperature_K = ambient_temperature_C + 273.15
+if temperature_K <= 0:
+    st.sidebar.error("Ambient temperature must be above absolute zero (-273.15 °C).")
+    air_density = 1.225
+else:
+    air_density = standard_pressure_Pa / (287.05 * temperature_K)
+
+average_wind_mps = average_wind_kmh / 3.6
+maximum_wind_mps = maximum_wind_kmh / 3.6
+
+environmental_conditions = {
+    "source": "Manual",
+    "location": "Manual input",
+    "date": "",
+    "ambient_temperature_C": ambient_temperature_C,
+    "average_wind_kmh": average_wind_kmh,
+    "maximum_wind_kmh": maximum_wind_kmh,
+}
+
+st.sidebar.caption(f"Calculated air density: {air_density:.3f} kg/m³")
 st.sidebar.divider()
 
 st.sidebar.subheader("Phase 1 — Operating Condition")
@@ -1271,8 +1303,9 @@ avg_trailer_load_per_tyre_N = (trailer_tyre_supported_mass * g) / max(num_traile
 F_rr_vehicle = (Crr_vehicle_front * front_loaded_N) + (Crr_vehicle_rear * rear_loaded_N)
 F_rr_trailer = Crr_trailer * trailer_tyre_supported_mass * g
 
-F_aero_vehicle = 0.5 * air_density * Cd_vehicle * A_vehicle * V ** 2
-F_aero_trailer = 0.5 * air_density * Cd_trailer * A_trailer * V ** 2
+relative_air_speed_p1_mps = V + average_wind_mps
+F_aero_vehicle = 0.5 * air_density * Cd_vehicle * A_vehicle * relative_air_speed_p1_mps ** 2
+F_aero_trailer = 0.5 * air_density * Cd_trailer * A_trailer * relative_air_speed_p1_mps ** 2
 
 F_resistance_total = F_rr_vehicle + F_rr_trailer + F_aero_vehicle + F_aero_trailer
 
@@ -1392,6 +1425,23 @@ if reference_vehicle_mass > 0 and abs(reference_vehicle_mass - vehicle_test_mass
     st.warning(
         "The reference vehicle mass does not match the sum of individual base tyre loads. "
         "Calculations are using the individual tyre loads."
+    )
+
+# ─── ENVIRONMENTAL SUMMARY ──────────────────────────────────────────────────────
+
+with st.expander("Environmental Summary", expanded=False):
+    _ec1, _ec2, _ec3 = st.columns(3)
+    _ec1.metric("Ambient Temperature", f"{ambient_temperature_C:.1f} °C")
+    _ec2.metric("Calculated Air Density", f"{air_density:.3f} kg/m³")
+    _ec3.metric("Standard Pressure", "101.325 kPa")
+    _ew1, _ew2, _ew3 = st.columns(3)
+    _ew1.metric("Average Wind", f"{average_wind_kmh:.1f} km/h")
+    _ew2.metric("Maximum Wind", f"{maximum_wind_kmh:.1f} km/h")
+    _ew3.metric("Phase 1 Relative Airspeed", f"{relative_air_speed_p1_mps * 3.6:.1f} km/h")
+    st.caption(
+        "Temperature affects aerodynamic resistance through air density. Average wind "
+        "represents expected conditions, while maximum wind represents a worst-case steady "
+        "headwind. Wind direction, crosswind, yaw and gust duration are not yet modelled."
     )
 
 # ─── PROFILE SUMMARY ─────────────────────────────────────────────────────────────
@@ -1753,205 +1803,238 @@ st.divider()
 st.header("Phase 2A — Predicted Level Road Acceleration")
 st.markdown(
     """
-    Simulates level-road acceleration via stepped-speed Euler integration.
-    At each speed step the gear giving the highest available tractive force is selected
-    automatically using the engine RPM and torque curve from the vehicle profile.
+    Simulates level-road acceleration using the selected vehicle, trailer and environmental
+    conditions. Two runs are calculated: an expected case using average wind and a worst-case
+    steady-headwind case using maximum wind.
 
-    **Assumptions:** flat level road · no wind · no gradient · torque curve evaluated
-    independently at each speed step. Aero drag basic (no yaw, no wind).
+    **Assumptions:** flat level road · direct longitudinal headwind · no crosswind/yaw ·
+    constant wind throughout each run · torque curve evaluated independently at each speed step.
     """
 )
 
-# ── Simulation Inputs ─────────────────────────────────────────────────────────
 _sa, _sb, _sc = st.columns(3)
 sim_start_kmh  = _sa.number_input("Start speed (km/h)", value=0.0, min_value=0.0, step=1.0, key="sim_start")
 sim_target_kmh = _sb.number_input("Target speed (km/h)", value=96.6, min_value=1.0, step=1.0, key="sim_target")
-sim_step_kmh   = _sc.number_input("Speed step (km/h)", value=0.5, min_value=0.01, max_value=5.0, step=0.1,
-                                   format="%.2f", key="sim_step")
+sim_step_kmh   = _sc.number_input(
+    "Speed step (km/h)", value=0.5, min_value=0.01, max_value=5.0,
+    step=0.1, format="%.2f", key="sim_step"
+)
 
-# Phase 2A rolling resistance (loaded-radius corrected, trailer tyre-supported mass only)
 F_rr_veh_p2 = Crr_veh_p2 * loaded_vehicle_tyre_total_N
 F_rr_trl_p2 = Crr_trl_p2 * trailer_tyre_supported_mass * g
-
 P_watts_p2 = peak_power_kW * 1000.0
 
-# Build speed array
 n_steps = math.ceil((sim_target_kmh - sim_start_kmh) / sim_step_kmh)
 sim_speeds = [sim_start_kmh + i * sim_step_kmh for i in range(n_steps + 1)]
 sim_speeds = [s for s in sim_speeds if s <= sim_target_kmh + 1e-9]
 if not sim_speeds or abs(sim_speeds[-1] - sim_target_kmh) > 1e-6:
     sim_speeds.append(sim_target_kmh)
 
-# Acceleration simulation loop
-sim_rows      = []
-sim_speed_out = []
-sim_time_out  = []
-sim_stopped   = False
-cumtime       = 0.0
+def run_acceleration_simulation(wind_kmh, case_name):
+    """Run one stepped-speed simulation using a constant longitudinal headwind."""
+    wind_mps = wind_kmh / 3.6
+    rows, speeds_out, times_out = [], [], []
+    stopped = False
+    cumtime = 0.0
 
-for idx, v_kmh in enumerate(sim_speeds):
-    V_mps = v_kmh / 3.6
+    for idx, v_kmh in enumerate(sim_speeds):
+        road_speed_mps = v_kmh / 3.6
+        relative_air_speed_mps = road_speed_mps + wind_mps
 
-    F_aero_veh = 0.5 * air_density * Cd_vehicle * A_vehicle * V_mps ** 2
-    F_aero_trl = 0.5 * air_density * Cd_trailer * A_trailer * V_mps ** 2
-    F_res      = F_rr_veh_p2 + F_rr_trl_p2 + F_aero_veh + F_aero_trl
+        F_aero_veh = 0.5 * air_density * Cd_vehicle * A_vehicle * relative_air_speed_mps ** 2
+        F_aero_trl = 0.5 * air_density * Cd_trailer * A_trailer * relative_air_speed_mps ** 2
+        F_res = F_rr_veh_p2 + F_rr_trl_p2 + F_aero_veh + F_aero_trl
 
-    g_rows, b_idx = select_best_gear(
-        gear_ratios          = vp["gear_ratios"],
-        final_drive_ratio    = final_drive_ratio,
-        driveline_efficiency = driveline_efficiency,
-        tyre_radius_m        = tyre_radius,
-        idle_rpm             = vp["idle_rpm"],
-        redline_rpm          = vp["redline_rpm"],
-        torque_curve         = active_torque_curve,
-        peak_power_W         = P_watts_p2,
-        V_mps                = V_mps,
-        fallback_torque_Nm   = vp["peak_torque_Nm"],
+        g_rows, b_idx = select_best_gear(
+            gear_ratios=vp["gear_ratios"],
+            final_drive_ratio=final_drive_ratio,
+            driveline_efficiency=driveline_efficiency,
+            tyre_radius_m=tyre_radius,
+            idle_rpm=vp["idle_rpm"],
+            redline_rpm=vp["redline_rpm"],
+            torque_curve=active_torque_curve,
+            peak_power_W=P_watts_p2,
+            V_mps=road_speed_mps,
+            fallback_torque_Nm=vp["peak_torque_Nm"],
+        )
+
+        if b_idx is not None:
+            best = g_rows[b_idx]
+            F_engine = best["F_available (N)"]
+            gear = best["Gear"]
+        else:
+            F_engine = 0.0
+            gear = None
+
+        F_final = min(F_engine, F_traction_limit)
+        traction_limited_sim = F_final < F_engine
+        F_net_sim = F_final - F_res
+        a_sim = F_net_sim / m_total if m_total > 0 else 0.0
+
+        speeds_out.append(v_kmh)
+        times_out.append(cumtime)
+        rows.append({
+            "Case": case_name,
+            "Road Speed (km/h)": round(v_kmh, 2),
+            "Wind Speed (km/h)": round(wind_kmh, 2),
+            "Relative Air Speed (km/h)": round(relative_air_speed_mps * 3.6, 2),
+            "Air Density (kg/m³)": round(air_density, 4),
+            "Gear": gear,
+            "F_engine_available (N)": round(F_engine, 1),
+            "F_traction_limit (N)": round(F_traction_limit, 1),
+            "F_available (N)": round(F_final, 1),
+            "Traction Limited": traction_limited_sim,
+            "F_rr Vehicle (N)": round(F_rr_veh_p2, 1),
+            "F_rr Trailer (N)": round(F_rr_trl_p2, 1),
+            "F_aero Vehicle (N)": round(F_aero_veh, 1),
+            "F_aero Trailer (N)": round(F_aero_trl, 1),
+            "F_resistance (N)": round(F_res, 1),
+            "F_net (N)": round(F_net_sim, 1),
+            "Acceleration (m/s²)": round(a_sim, 4),
+            "Cumulative Time (s)": round(cumtime, 3),
+        })
+
+        if a_sim <= 0:
+            stopped = True
+            break
+
+        if idx < len(sim_speeds) - 1:
+            dV = (sim_speeds[idx + 1] - v_kmh) / 3.6
+            cumtime += dV / a_sim
+
+    t48 = interp_time_at_speed(speeds_out, times_out, 48.3)
+    t64 = interp_time_at_speed(speeds_out, times_out, 64.4)
+    t96 = interp_time_at_speed(speeds_out, times_out, 96.6)
+    t64_96 = (t96 - t64) if (t64 is not None and t96 is not None) else None
+    overall = (
+        t48 is not None and t48 <= 12 and
+        t96 is not None and t96 <= 30 and
+        t64_96 is not None and t64_96 <= 18
     )
+    return {
+        "rows": rows,
+        "speed": speeds_out,
+        "time": times_out,
+        "stopped": stopped,
+        "T_48": t48,
+        "T_64": t64,
+        "T_96": t96,
+        "T_64_96": t64_96,
+        "overall_pass": overall,
+    }
 
-    if b_idx is not None:
-        _bs = g_rows[b_idx]
-        best_F_engine = _bs["F_available (N)"]
-        best_gear_n  = _bs["Gear"]
-    else:
-        best_F_engine = 0.0
-        best_gear_n  = None
-
-    best_F_avail = min(best_F_engine, F_traction_limit)
-    traction_limited_sim = best_F_avail < best_F_engine
-
-    F_net_sim = best_F_avail - F_res
-    a_sim     = F_net_sim / m_total if m_total > 0 else 0.0
-
-    sim_speed_out.append(v_kmh)
-    sim_time_out.append(cumtime)
-    sim_rows.append({
-        "Speed (km/h)":        round(v_kmh, 2),
-        "Gear":                best_gear_n,
-        "F_engine_available (N)": round(best_F_engine, 1),
-        "F_traction_limit (N)":   round(F_traction_limit, 1),
-        "F_available (N)":     round(best_F_avail, 1),
-        "Traction Limited":    traction_limited_sim,
-        "F_rr Vehicle (N)":    round(F_rr_veh_p2, 1),
-        "F_rr Trailer (N)":    round(F_rr_trl_p2, 1),
-        "F_aero Vehicle (N)":  round(F_aero_veh, 1),
-        "F_aero Trailer (N)":  round(F_aero_trl, 1),
-        "F_resistance (N)":    round(F_res, 1),
-        "F_net (N)":           round(F_net_sim, 1),
-        "Acceleration (m/s²)": round(a_sim, 4),
-        "Cumulative Time (s)": round(cumtime, 3),
-    })
-
-    if a_sim <= 0:
-        sim_stopped = True
-        break
-
-    if idx < len(sim_speeds) - 1:
-        dV = (sim_speeds[idx + 1] - v_kmh) / 3.6
-        cumtime += dV / a_sim
-
-# Milestone interpolation
-T_48    = interp_time_at_speed(sim_speed_out, sim_time_out, 48.3)
-T_64    = interp_time_at_speed(sim_speed_out, sim_time_out, 64.4)
-T_96    = interp_time_at_speed(sim_speed_out, sim_time_out, 96.6)
-T_64_96 = (T_96 - T_64) if (T_64 is not None and T_96 is not None) else None
+avg_sim = run_acceleration_simulation(average_wind_kmh, "Average Wind")
+max_sim = run_acceleration_simulation(maximum_wind_kmh, "Maximum Wind")
+no_wind_sim = run_acceleration_simulation(0.0, "No Wind")
 
 def fmt_t(t):
     return f"{t:.2f} s" if t is not None else "Not reached"
 
 def pf(t, lim):
-    return ("✅ PASS" if t is not None and t <= lim else "❌ FAIL")
+    return "✅ PASS" if t is not None and t <= lim else "❌ FAIL"
 
-overall_pass = (
-    T_48    is not None and T_48    <= 12
-    and T_96    is not None and T_96    <= 30
-    and T_64_96 is not None and T_64_96 <= 18
-)
+st.subheader("Average Wind Results")
+_aw1, _aw2, _aw3, _aw4 = st.columns(4)
+_aw1.metric("IVM to 48.3 km/h", fmt_t(avg_sim["T_48"]), delta="Limit: 12 s", delta_color="off")
+_aw2.metric("IVM to 96.6 km/h", fmt_t(avg_sim["T_96"]), delta="Limit: 30 s", delta_color="off")
+_aw3.metric("64.4 to 96.6 km/h", fmt_t(avg_sim["T_64_96"]), delta="Limit: 18 s", delta_color="off")
+_aw4.metric("Overall Result", "✅ PASS" if avg_sim["overall_pass"] else "❌ FAIL")
 
-if sim_stopped and T_96 is None:
-    st.warning(
-        f"Simulation stopped at {sim_speed_out[-1]:.1f} km/h — net force reached zero "
-        "before the target speed."
-    )
+st.subheader("Maximum Wind Results")
+_mw1, _mw2, _mw3, _mw4 = st.columns(4)
+_mw1.metric("IVM to 48.3 km/h", fmt_t(max_sim["T_48"]), delta="Limit: 12 s", delta_color="off")
+_mw2.metric("IVM to 96.6 km/h", fmt_t(max_sim["T_96"]), delta="Limit: 30 s", delta_color="off")
+_mw3.metric("64.4 to 96.6 km/h", fmt_t(max_sim["T_64_96"]), delta="Limit: 18 s", delta_color="off")
+_mw4.metric("Overall Result", "✅ PASS" if max_sim["overall_pass"] else "❌ FAIL")
 
-_ac1, _ac2, _ac3, _ac4 = st.columns(4)
-_ac1.metric("IVM to 48.3 km/h",    fmt_t(T_48),    delta="Limit: 12 s", delta_color="off")
-_ac2.metric("IVM to 96.6 km/h",    fmt_t(T_96),    delta="Limit: 30 s", delta_color="off")
-_ac3.metric("64.4 to 96.6 km/h",   fmt_t(T_64_96), delta="Limit: 18 s", delta_color="off")
-_ac4.metric("Overall Result", "✅ PASS" if overall_pass else "❌ FAIL")
+for label, result in [("Average wind", avg_sim), ("Maximum wind", max_sim)]:
+    if result["stopped"] and result["T_96"] is None:
+        st.warning(
+            f"{label} simulation stopped at {result['speed'][-1]:.1f} km/h because net force "
+            "reached zero before the target speed."
+        )
 
-st.subheader("Acceleration Test Results")
-st.dataframe(pd.DataFrame({
-    "Test Target":    ["IVM to 48.3 km/h", "IVM to 96.6 km/h", "64.4 to 96.6 km/h"],
-    "Predicted Time": [fmt_t(T_48), fmt_t(T_96), fmt_t(T_64_96)],
-    "Limit (s)":      [12, 30, 18],
-    "Pass / Fail":    [pf(T_48, 12), pf(T_96, 30), pf(T_64_96, 18)],
-}), use_container_width=True, hide_index=True)
+st.subheader("Acceleration Test Comparison")
+comparison_df = pd.DataFrame({
+    "Test Target": ["IVM to 48.3 km/h", "IVM to 96.6 km/h", "64.4 to 96.6 km/h"],
+    "No-Wind Time": [fmt_t(no_wind_sim["T_48"]), fmt_t(no_wind_sim["T_96"]), fmt_t(no_wind_sim["T_64_96"])],
+    "Average-Wind Time": [fmt_t(avg_sim["T_48"]), fmt_t(avg_sim["T_96"]), fmt_t(avg_sim["T_64_96"])],
+    "Maximum-Wind Time": [fmt_t(max_sim["T_48"]), fmt_t(max_sim["T_96"]), fmt_t(max_sim["T_64_96"])],
+    "Limit (s)": [12, 30, 18],
+    "Average-Wind Pass / Fail": [pf(avg_sim["T_48"], 12), pf(avg_sim["T_96"], 30), pf(avg_sim["T_64_96"], 18)],
+    "Maximum-Wind Pass / Fail": [pf(max_sim["T_48"], 12), pf(max_sim["T_96"], 30), pf(max_sim["T_64_96"], 18)],
+})
+st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-# Four plots
-if len(sim_rows) > 1:
-    df_sim = pd.DataFrame(sim_rows)
+if len(avg_sim["rows"]) > 1 and len(max_sim["rows"]) > 1:
+    df_avg = pd.DataFrame(avg_sim["rows"])
+    df_max = pd.DataFrame(max_sim["rows"])
     _pl, _pr = st.columns(2)
 
     with _pl:
         fig1, ax1 = plt.subplots(figsize=(6, 4))
-        ax1.plot(df_sim["Cumulative Time (s)"], df_sim["Speed (km/h)"],
-                 color="#1976D2", linewidth=2)
-        for _tk, _vk2 in [(48.3, 12), (96.6, 30)]:
-            ax1.axhline(_tk, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-            ax1.axvline(_vk2, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-        for _tv, _sv in [(T_48, 48.3), (T_96, 96.6)]:
-            if _tv is not None:
-                ax1.plot(_tv, _sv, "o", color="#E64A19", zorder=5)
-                ax1.annotate(f"{_tv:.1f} s", (_tv, _sv),
-                             textcoords="offset points", xytext=(6, -12),
-                             fontsize=8, color="#E64A19")
-        ax1.set_xlabel("Time (s)"); ax1.set_ylabel("Speed (km/h)")
+        ax1.plot(df_avg["Cumulative Time (s)"], df_avg["Road Speed (km/h)"], linewidth=2, label="Average wind")
+        ax1.plot(df_max["Cumulative Time (s)"], df_max["Road Speed (km/h)"], linewidth=2, label="Maximum wind")
+        ax1.axhline(48.3, linestyle="--", linewidth=0.8, alpha=0.6)
+        ax1.axhline(96.6, linestyle="--", linewidth=0.8, alpha=0.6)
+        ax1.set_xlabel("Time (s)")
+        ax1.set_ylabel("Road speed (km/h)")
         ax1.set_title("Speed vs Time", fontweight="bold")
-        ax1.spines["top"].set_visible(False); ax1.spines["right"].set_visible(False)
+        ax1.legend(fontsize=8)
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
         plt.tight_layout(); st.pyplot(fig1); plt.close(fig1)
 
     with _pr:
         fig2, ax2 = plt.subplots(figsize=(6, 4))
-        ax2.plot(df_sim["Speed (km/h)"], df_sim["Acceleration (m/s²)"],
-                 color="#388E3C", linewidth=2)
-        ax2.axhline(0, color="red", linestyle="--", linewidth=0.8)
-        ax2.set_xlabel("Speed (km/h)"); ax2.set_ylabel("Acceleration (m/s²)")
+        ax2.plot(df_avg["Road Speed (km/h)"], df_avg["Acceleration (m/s²)"], linewidth=2, label="Average wind")
+        ax2.plot(df_max["Road Speed (km/h)"], df_max["Acceleration (m/s²)"], linewidth=2, label="Maximum wind")
+        ax2.axhline(0, linestyle="--", linewidth=0.8)
+        ax2.set_xlabel("Road speed (km/h)")
+        ax2.set_ylabel("Acceleration (m/s²)")
         ax2.set_title("Acceleration vs Speed", fontweight="bold")
-        ax2.spines["top"].set_visible(False); ax2.spines["right"].set_visible(False)
+        ax2.legend(fontsize=8)
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
         plt.tight_layout(); st.pyplot(fig2); plt.close(fig2)
 
     with _pl:
         fig3, ax3 = plt.subplots(figsize=(6, 4))
-        ax3.plot(df_sim["Speed (km/h)"], df_sim["F_engine_available (N)"],
-                 color="#7B1FA2", linewidth=2, label="Engine-limited tractive force")
-        ax3.plot(df_sim["Speed (km/h)"], df_sim["F_available (N)"],
-                 color="#0288D1", linewidth=2, label="Final available force after traction limit")
-        ax3.plot(df_sim["Speed (km/h)"], df_sim["F_resistance (N)"],
-                 color="#E64A19", linewidth=2, linestyle="--", label="Total resistance")
-        ax3.set_xlabel("Speed (km/h)"); ax3.set_ylabel("Force (N)")
-        ax3.set_title("Tractive Force and Resistance vs Speed", fontweight="bold")
+        ax3.plot(df_avg["Road Speed (km/h)"], df_avg["F_available (N)"], linewidth=2, label="Final available tractive force")
+        ax3.plot(df_avg["Road Speed (km/h)"], df_avg["F_resistance (N)"], linewidth=2, linestyle="--", label="Average-wind total resistance")
+        ax3.plot(df_max["Road Speed (km/h)"], df_max["F_resistance (N)"], linewidth=2, linestyle=":", label="Maximum-wind total resistance")
+        ax3.set_xlabel("Road speed (km/h)")
+        ax3.set_ylabel("Force (N)")
+        ax3.set_title("Tractive Force and Wind-Adjusted Resistance", fontweight="bold")
         ax3.legend(fontsize=8)
-        ax3.spines["top"].set_visible(False); ax3.spines["right"].set_visible(False)
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
         plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
 
     with _pr:
-        _gear_num = pd.to_numeric(df_sim["Gear"], errors="coerce").dropna()
-        _spd_gear = df_sim.loc[_gear_num.index, "Speed (km/h)"]
+        gear_num = pd.to_numeric(df_avg["Gear"], errors="coerce").dropna()
+        speed_gear = df_avg.loc[gear_num.index, "Road Speed (km/h)"]
         fig4, ax4 = plt.subplots(figsize=(6, 4))
-        ax4.step(_spd_gear, _gear_num, color="#0288D1", linewidth=2, where="post")
-        ax4.set_xlabel("Speed (km/h)"); ax4.set_ylabel("Gear")
+        ax4.step(speed_gear, gear_num, linewidth=2, where="post")
+        ax4.set_xlabel("Road speed (km/h)")
+        ax4.set_ylabel("Gear")
         ax4.set_yticks(range(1, len(vp["gear_ratios"]) + 1))
         ax4.set_title("Selected Gear vs Speed", fontweight="bold")
-        ax4.spines["top"].set_visible(False); ax4.spines["right"].set_visible(False)
+        ax4.spines["top"].set_visible(False)
+        ax4.spines["right"].set_visible(False)
         plt.tight_layout(); st.pyplot(fig4); plt.close(fig4)
 
-    with st.expander("Simulation Data Table", expanded=False):
-        st.caption(
-            "Step-by-step output. Each row shows conditions at the start of that "
-            "speed band. Cumulative time is the elapsed time to reach that speed."
-        )
-        st.dataframe(df_sim, use_container_width=True, hide_index=True)
+    with st.expander("Average Wind Simulation Data", expanded=False):
+        st.dataframe(df_avg, use_container_width=True, hide_index=True)
 
+    with st.expander("Maximum Wind Simulation Data", expanded=False):
+        st.dataframe(df_max, use_container_width=True, hide_index=True)
 else:
-    st.info("Increase the simulation speed range (target > start) to run the simulation.")
+    st.info("Increase the simulation speed range (target > start) to run both wind simulations.")
+
+st.caption(
+    "Temperature affects aerodynamic resistance through calculated air density. Average wind "
+    "represents expected conditions, while maximum wind represents a worst-case steady headwind. "
+    "Wind direction, crosswind, yaw and gust duration are not yet modelled."
+)
+
