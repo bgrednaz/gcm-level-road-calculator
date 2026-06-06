@@ -448,6 +448,8 @@ def get_active_torque_curve(profile):
         profile.get("redline_rpm", 1.0),
     )
 
+VEHICLE_BODY_TYPES = ["Ute", "SUV"]
+
 # ─── PROFILE DEFAULT ENRICHMENT ────────────────────────────────────────────────
 
 def enrich_vehicle_profile(name, prof):
