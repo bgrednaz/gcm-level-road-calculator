@@ -768,9 +768,10 @@ vk  = selected_vehicle   # widget key prefix
 _ver = st.session_state.get(f"ev_ver_{vk}", 0)
 _vkv = f"{vk}_v{_ver}"   # versioned key — refreshes widgets after apply/reset
 
-m_vehicle = st.sidebar.number_input(
-    "Vehicle mass (kg)", value=float(vp["vehicle_mass"]),
-    min_value=0.0, step=50.0, key=f"m_veh_{vk}",
+reference_vehicle_mass = float(vp.get("vehicle_mass", 0.0))
+st.sidebar.caption(
+    f"Reference vehicle mass only: {reference_vehicle_mass:,.0f} kg. "
+    "Calculations use the sum of individual base tyre loads."
 )
 GCM = st.sidebar.number_input(
     "Rated GCM (kg)", value=float(vp["rated_GCM"]),
@@ -865,7 +866,7 @@ with st.sidebar.expander("✏️ Edit Vehicle Profile", expanded=False):
                 st.error(_e)
         else:
             st.session_state["vehicle_profiles"][selected_vehicle] = {
-                "vehicle_mass":        m_vehicle,
+                "vehicle_mass":        e_fl_load + e_fr_load + e_rl_load + e_rr_load,
                 "rated_GCM":           GCM,
                 "peak_torque_Nm":      e_ptq,
                 "peak_torque_rpm":     int(e_ptq_rpm),
@@ -1198,9 +1199,7 @@ gvm_limit_kg         = float(vp["gvm_limit_kg"])
 
 V = speed_kmh / 3.6   # m/s
 
-m_total         = m_vehicle + m_trailer
-GCM_utilisation = (m_total / GCM) * 100.0
-
+# Vehicle test mass and combination mass are calculated from individual tyre loads below.
 Crr_vehicle_front = estimate_crr(vehicle_tyre_type, front_tyre_pressure)
 Crr_vehicle_rear  = estimate_crr(vehicle_tyre_type, rear_tyre_pressure)
 Crr_vehicle = (Crr_vehicle_front + Crr_vehicle_rear) / 2.0
@@ -1384,6 +1383,13 @@ elif net_negative:
         "The vehicle cannot maintain speed or accelerate at this condition."
     )
 
+# Warn if the stored/reference vehicle mass does not match the wheel-load-derived vehicle test mass.
+if reference_vehicle_mass > 0 and abs(reference_vehicle_mass - vehicle_test_mass_unhitched_kg) > 0.02 * reference_vehicle_mass:
+    st.warning(
+        "The reference vehicle mass does not match the sum of individual base tyre loads. "
+        "Calculations are using the individual tyre loads."
+    )
+
 # ─── PROFILE SUMMARY ─────────────────────────────────────────────────────────────
 
 with st.expander("Profile Summary", expanded=False):
@@ -1391,7 +1397,7 @@ with st.expander("Profile Summary", expanded=False):
     with c1:
         st.markdown("**Vehicle**")
         st.write(f"Profile: {selected_vehicle}")
-        st.write(f"Vehicle mass: {m_vehicle:,.0f} kg  |  Rated GCM: {GCM:,.0f} kg")
+        st.write(f"Vehicle test mass from wheel loads: {vehicle_test_mass_unhitched_kg:,.0f} kg  |  Rated GCM: {GCM:,.0f} kg")
         st.write(f"Peak torque: {vp['peak_torque_Nm']:.0f} Nm @ {vp['peak_torque_rpm']:,} RPM")
         st.write(f"Peak power:  {vp['peak_power_kW']:.0f} kW @ {vp['peak_power_rpm']:,} RPM")
         st.write(f"Idle RPM: {vp['idle_rpm']:,}  |  Redline RPM: {vp['redline_rpm']:,}")
@@ -1423,6 +1429,7 @@ with st.expander("Profile Summary", expanded=False):
     st.markdown("**Combination**")
     _cc1, _cc2, _cc3 = st.columns(3)
     _cc1.write(f"Total mass: {m_total:,.0f} kg")
+    _cc1.write(f"Vehicle test mass source: wheel loads ({vehicle_test_mass_unhitched_kg:,.0f} kg)")
     _cc2.write(f"Rated GCM: {GCM:,.0f} kg")
     _cc3.write(f"GCM utilisation: {GCM_utilisation:.1f}%")
     st.caption(
@@ -1536,17 +1543,17 @@ with st.expander("Vehicle Individual Tyre Loads", expanded=False):
         "Contact Patch Length (cm)": 1,
     }), use_container_width=True, hide_index=True)
 
-    base_diff = base_vehicle_tyre_mass_kg - m_vehicle
-    loaded_diff = loaded_vehicle_tyre_mass_kg - (m_vehicle + tow_ball_mass)
+    base_diff = base_vehicle_tyre_mass_kg - reference_vehicle_mass
+    loaded_diff = loaded_vehicle_tyre_mass_kg - expected_vehicle_connected_kg
     c1, c2, c3 = st.columns(3)
-    c1.metric("Base tyre load total", f"{base_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{base_diff:+.1f} kg vs vehicle mass", delta_color="off")
-    c2.metric("Loaded tyre load total", f"{loaded_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{loaded_diff:+.1f} kg vs vehicle + ball", delta_color="off")
+    c1.metric("Vehicle test mass from wheel loads", f"{base_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{base_diff:+.1f} kg vs reference", delta_color="off")
+    c2.metric("Connected vehicle tyre load total", f"{loaded_vehicle_tyre_mass_kg:,.1f} kg", delta=f"{loaded_diff:+.1f} kg vs unhitched + ball", delta_color="off")
     c3.metric("Towball download", f"{tow_ball_mass:,.1f} kg")
 
-    if m_vehicle > 0 and abs(base_diff) > 0.02 * m_vehicle:
-        st.warning("The entered base individual tyre loads do not closely match the vehicle mass.")
-    if (m_vehicle + tow_ball_mass) > 0 and abs(loaded_diff) > 0.02 * (m_vehicle + tow_ball_mass):
-        st.warning("The loaded tyre loads do not closely match vehicle mass plus tow ball mass.")
+    if reference_vehicle_mass > 0 and abs(base_diff) > 0.02 * reference_vehicle_mass:
+        st.warning("The reference vehicle mass does not match the sum of individual base tyre loads. Calculations are using the individual tyre loads.")
+    if expected_vehicle_connected_kg > 0 and abs(loaded_diff) > 0.02 * expected_vehicle_connected_kg:
+        st.warning("The connected tyre loads do not closely match unhitched wheel-load mass plus towball mass.")
 
     st.caption(
         "Connected tyre loads are derived from the TD-style axle load transfer calculation using wheelbase and rear axle to towball distance. "
@@ -1586,13 +1593,18 @@ with st.expander("Trailer Wheel Load Summary", expanded=False):
 
 st.subheader("Mass Calculations")
 _mc1, _mc2, _mc3 = st.columns(3)
-_mc1.metric("Total Combination Mass", f"{m_total:,.0f} kg")
-_mc2.metric(
+_mc1.metric("Front Axle Unhitched Load", f"{front_axle_unhitched_kg:,.0f} kg")
+_mc2.metric("Rear Axle Unhitched Load", f"{rear_axle_unhitched_kg:,.0f} kg")
+_mc3.metric("Vehicle Test Mass from Wheel Loads", f"{vehicle_test_mass_unhitched_kg:,.0f} kg")
+_mc4, _mc5, _mc6 = st.columns(3)
+_mc4.metric("Trailer Mass", f"{m_trailer:,.0f} kg")
+_mc5.metric("Total Combination Mass", f"{m_total:,.0f} kg")
+_mc6.metric(
     "GCM Utilisation", f"{GCM_utilisation:.1f}%",
     delta=f"{GCM_utilisation - 100:.1f}% over limit" if gcm_exceeded else None,
     delta_color="inverse",
 )
-_mc3.metric("Rated GCM", f"{GCM:,.0f} kg")
+st.caption(f"Rated GCM: {GCM:,.0f} kg. Vehicle mass is derived from individual base tyre loads, not the reference vehicle mass field.")
 
 # ─── DRIVELINE / TRACTIVE FORCE ──────────────────────────────────────────────────
 
