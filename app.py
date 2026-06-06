@@ -1166,11 +1166,11 @@ st.sidebar.subheader("Environmental Conditions")
 ambient_temperature_C = st.sidebar.number_input(
     "Ambient temperature (°C)", value=20.0, step=1.0, format="%.1f"
 )
-average_wind_kmh = st.sidebar.number_input(
-    "Average wind speed (km/h)", value=0.0, min_value=0.0, step=1.0, format="%.1f"
+average_wind_mps = st.sidebar.number_input(
+    "Average wind speed (m/s)", value=0.0, min_value=0.0, step=0.5, format="%.1f"
 )
-maximum_wind_kmh = st.sidebar.number_input(
-    "Maximum wind speed (km/h)", value=0.0, min_value=0.0, step=1.0, format="%.1f"
+maximum_wind_mps = st.sidebar.number_input(
+    "Maximum wind speed (m/s)", value=0.0, min_value=0.0, step=0.5, format="%.1f"
 )
 st.sidebar.caption(
     "Average wind is used for the expected acceleration result. Maximum wind is used "
@@ -1185,16 +1185,14 @@ if temperature_K <= 0:
 else:
     air_density = standard_pressure_Pa / (287.05 * temperature_K)
 
-average_wind_mps = average_wind_kmh / 3.6
-maximum_wind_mps = maximum_wind_kmh / 3.6
 
 environmental_conditions = {
     "source": "Manual",
     "location": "Manual input",
     "date": "",
     "ambient_temperature_C": ambient_temperature_C,
-    "average_wind_kmh": average_wind_kmh,
-    "maximum_wind_kmh": maximum_wind_kmh,
+    "average_wind_mps": average_wind_mps,
+    "maximum_wind_mps": maximum_wind_mps,
 }
 
 st.sidebar.caption(f"Calculated air density: {air_density:.3f} kg/m³")
@@ -1435,8 +1433,8 @@ with st.expander("Environmental Summary", expanded=False):
     _ec2.metric("Calculated Air Density", f"{air_density:.3f} kg/m³")
     _ec3.metric("Standard Pressure", "101.325 kPa")
     _ew1, _ew2, _ew3 = st.columns(3)
-    _ew1.metric("Average Wind", f"{average_wind_kmh:.1f} km/h")
-    _ew2.metric("Maximum Wind", f"{maximum_wind_kmh:.1f} km/h")
+    _ew1.metric("Average Wind", f"{average_wind_mps:.1f} m/s", help=f"{average_wind_mps * 3.6:.1f} km/h")
+    _ew2.metric("Maximum Wind", f"{maximum_wind_mps:.1f} m/s", help=f"{maximum_wind_mps * 3.6:.1f} km/h")
     _ew3.metric("Phase 1 Relative Airspeed", f"{relative_air_speed_p1_mps * 3.6:.1f} km/h")
     st.caption(
         "Temperature affects aerodynamic resistance through air density. Average wind "
@@ -1830,9 +1828,8 @@ sim_speeds = [s for s in sim_speeds if s <= sim_target_kmh + 1e-9]
 if not sim_speeds or abs(sim_speeds[-1] - sim_target_kmh) > 1e-6:
     sim_speeds.append(sim_target_kmh)
 
-def run_acceleration_simulation(wind_kmh, case_name):
-    """Run one stepped-speed simulation using a constant longitudinal headwind."""
-    wind_mps = wind_kmh / 3.6
+def run_acceleration_simulation(wind_mps, case_name):
+    """Run one stepped-speed simulation using a constant longitudinal headwind in m/s."""
     rows, speeds_out, times_out = [], [], []
     stopped = False
     cumtime = 0.0
@@ -1876,7 +1873,7 @@ def run_acceleration_simulation(wind_kmh, case_name):
         rows.append({
             "Case": case_name,
             "Road Speed (km/h)": round(v_kmh, 2),
-            "Wind Speed (km/h)": round(wind_kmh, 2),
+            "Wind Speed (m/s)": round(wind_mps, 2),
             "Relative Air Speed (km/h)": round(relative_air_speed_mps * 3.6, 2),
             "Air Density (kg/m³)": round(air_density, 4),
             "Gear": gear,
@@ -1923,8 +1920,8 @@ def run_acceleration_simulation(wind_kmh, case_name):
         "overall_pass": overall,
     }
 
-avg_sim = run_acceleration_simulation(average_wind_kmh, "Average Wind")
-max_sim = run_acceleration_simulation(maximum_wind_kmh, "Maximum Wind")
+avg_sim = run_acceleration_simulation(average_wind_mps, "Average Wind")
+max_sim = run_acceleration_simulation(maximum_wind_mps, "Maximum Wind")
 no_wind_sim = run_acceleration_simulation(0.0, "No Wind")
 
 def fmt_t(t):
