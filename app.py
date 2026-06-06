@@ -1218,6 +1218,10 @@ front_axle_unhitched_kg = fl_base_kg + fr_base_kg
 rear_axle_unhitched_kg = rl_base_kg + rr_base_kg
 vehicle_test_mass_unhitched_kg = front_axle_unhitched_kg + rear_axle_unhitched_kg
 
+# Use wheel-load-derived vehicle mass as the source of truth for all mass calculations.
+m_total = vehicle_test_mass_unhitched_kg + m_trailer
+GCM_utilisation = (m_total / GCM) * 100.0 if GCM > 0 else 0.0
+
 if wheelbase_mm > 0:
     towball_lever_ratio = rear_axle_to_towball_mm / wheelbase_mm
     front_axle_change_kg = -tow_ball_mass * towball_lever_ratio
