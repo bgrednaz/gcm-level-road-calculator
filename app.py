@@ -1001,6 +1001,9 @@ trailer_sail_area = trailer_sail_width * trailer_sail_height
 hitch_to_sail_distance = float(tp.get("hitch_to_sail_distance_m", 4.43))
 trailer_sail_Cd = float(tp.get("trailer_sail_Cd", Cd_trailer))
 
+# Read the selected vehicle body type before applying trailer wake shielding.
+vehicle_body_type = vp.get("vehicle_body_type", "Ute")
+
 if vehicle_body_type == "SUV":
     initial_shielding_fraction = 0.45
 else:
